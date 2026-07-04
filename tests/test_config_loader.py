@@ -1,0 +1,30 @@
+from pathlib import Path
+
+import yaml
+
+from src.config_loader import DEFAULT_SETTINGS, load_config
+
+
+def test_load_config_reads_settings_file(tmp_path: Path) -> None:
+    config_path = tmp_path / "settings.yaml"
+    config_path.write_text(
+        yaml.safe_dump(DEFAULT_SETTINGS, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config["test_contact"] == "文件传输助手"
+    assert config["test_message"] == "WeChat Assistant test message"
+
+
+def test_default_dry_run_is_true() -> None:
+    config = load_config()
+
+    assert config["dry_run"] is True
+
+
+def test_default_allow_real_send_is_false() -> None:
+    config = load_config()
+
+    assert config["allow_real_send"] is False

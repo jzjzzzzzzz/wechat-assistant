@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -22,13 +23,16 @@ def birthday_matches(today: date, birthday: str) -> bool:
     if not value:
         return False
 
-    for fmt in ("%m-%d", "%Y-%m-%d"):
-        try:
-            parsed = datetime.strptime(value, fmt)
-            return parsed.month == today.month and parsed.day == today.day
-        except ValueError:
-            continue
-    return False
+    if re_match := re.fullmatch(r"(\d{2})-(\d{2})", value):
+        month = int(re_match.group(1))
+        day = int(re_match.group(2))
+        return month == today.month and day == today.day
+
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%d")
+        return parsed.month == today.month and parsed.day == today.day
+    except ValueError:
+        return False
 
 
 def _is_enabled(value: Any) -> bool:
