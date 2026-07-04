@@ -4,6 +4,20 @@ WeChat Assistant is a macOS Python automation project for controlling the alread
 
 The first phase focuses on environment checks, WeChat window control, screenshots, safe test-message sending, logging, configuration, OCR contact scanning, and a birthday-task skeleton.
 
+## Project Status
+
+Implemented:
+
+- macOS environment and permission checks
+- YAML configuration loading with defaults and type validation
+- terminal and file logging
+- WeChat for Mac launch, activation, and shortcut-based contact search
+- screenshot capture
+- safe dry-run test message flow
+- OCR contact candidate extraction into `data/contacts_cache.csv`
+- birthday task CSV matching skeleton
+- pytest coverage for config, dry-run sending, and birthday matching
+
 ## Safety
 
 - This project does not read WeChat databases.
@@ -15,6 +29,7 @@ The first phase focuses on environment checks, WeChat window control, screenshot
 - Real sending is allowed only when both settings are true:
   - `dry_run: false`
   - `allow_real_send: true`
+- Birthday and future batch features are dry-run first and must not be used for uncontrolled group sending.
 
 ## Setup
 
@@ -36,6 +51,12 @@ python -m src.main scan-contacts
 python -m src.main birthday-check
 ```
 
+Run tests:
+
+```bash
+pytest
+```
+
 ## macOS Permissions
 
 Open System Settings and enable permissions for the terminal app you use:
@@ -44,6 +65,8 @@ Open System Settings and enable permissions for the terminal app you use:
 - Privacy & Security > Screen Recording
 
 If screenshot or mouse control fails, enable these permissions, quit and reopen the terminal, then run the command again.
+
+`python -m src.main check` prints the Python version, verifies that the platform is macOS, attempts a screenshot, and attempts a no-op mouse move. Permission failures are logged to `logs/app.log`.
 
 ## Dry Run and Real Sending
 
@@ -66,13 +89,34 @@ allow_real_send: true
 
 The sender also refuses real sending to contacts other than `文件传输助手` by default.
 
+## Testing Only 文件传输助手
+
+Keep this default in `config/settings.yaml`:
+
+```yaml
+test_contact: "文件传输助手"
+test_message: "WeChat Assistant test message"
+dry_run: true
+allow_real_send: false
+```
+
+Then run:
+
+```bash
+python -m src.main test-send
+```
+
+With the default dry-run settings, the command prints and logs the planned action without touching the WeChat input box or sending a message.
+
 ## Troubleshooting
 
-- Screenshot fails: enable Screen Recording permission for your terminal.
-- `pyautogui` has no permission: enable Accessibility permission for your terminal.
-- WeChat is not open: the project attempts `open -a WeChat`.
+- Screenshot fails: enable Screen Recording permission for your terminal, then restart the terminal app.
+- `pyautogui` has no permission: enable Accessibility permission for your terminal, then restart the terminal app.
+- WeChat is not open: the project attempts `open -a WeChat`; if that fails, open WeChat manually and make sure you are logged in.
 - Chinese input fails: messages are pasted with `pyperclip` to avoid input-method issues.
-- OCR is inaccurate: OCR is best-effort and writes low-confidence results to `data/contacts_cache.csv`.
+- OCR is inaccurate: OCR is best-effort and writes cleaned candidate results to `data/contacts_cache.csv`; take a clearer screenshot and retry.
+- `easyocr` downloads models slowly: this is expected on first use.
+- `pytest` is missing: activate the virtual environment and run `pip install -r requirements.txt`.
 
 ## Roadmap
 
