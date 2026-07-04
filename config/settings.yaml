@@ -1,0 +1,11 @@
+dry_run: true
+allow_real_send: false
+test_contact: "文件传输助手"
+test_message: "WeChat Assistant test message"
+wechat_app_name: "WeChat"
+screenshot_dir: "screenshots"
+log_file: "logs/app.log"
+ocr_engine: "easyocr"
+search_delay_seconds: 1.5
+send_delay_seconds: 1.0
+max_retry: 3

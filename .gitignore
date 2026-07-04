@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.DS_Store
+screenshots/*.png
+screenshots/*.jpg
+screenshots/*.jpeg
+logs/*.log
+!logs/app.log
+data/*.tmp

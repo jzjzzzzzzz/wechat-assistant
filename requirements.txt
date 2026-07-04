@@ -1,0 +1,9 @@
+pyautogui
+pyperclip
+pyyaml
+pandas
+schedule
+pillow
+opencv-python
+easyocr
+pytest
