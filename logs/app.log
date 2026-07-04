@@ -1,0 +1,10 @@
+2026-07-05 01:13:52 INFO [wechat_assistant] Running command: check
+2026-07-05 01:13:52 INFO [src.mac_permissions] Current platform: Darwin. Python: 3.13.14
+2026-07-05 01:14:47 INFO [src.mac_permissions] Screenshot check passed. Captured size: (3024, 1964)
+2026-07-05 01:14:47 INFO [src.mac_permissions] Mouse control check passed.
+2026-07-05 01:14:47 INFO [src.mac_permissions] Required macOS permissions: System Settings > Privacy & Security > Accessibility, and System Settings > Privacy & Security > Screen Recording.
+2026-07-05 01:14:52 INFO [wechat_assistant] Running command: screenshot
+2026-07-05 01:14:52 INFO [src.screenshot] Screenshot saved: /Users/jz/学习资料/wechat-assistant/screenshots/screenshot_20260705_011452.png
+2026-07-05 01:14:58 INFO [wechat_assistant] Running command: test-send
+2026-07-05 01:14:58 INFO [src.message_sender] Preparing message. Target=文件传输助手 dry_run=True
+2026-07-05 01:14:58 INFO [src.message_sender] Dry run only. No WeChat UI action performed. Reason: dry_run is true
