@@ -8,7 +8,6 @@ screenshots/*.png
 screenshots/*.jpg
 screenshots/*.jpeg
 logs/*.log
-!logs/app.log
 data/*.tmp
 data/*.sqlite3
 data/*.sqlite3-*
