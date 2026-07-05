@@ -152,4 +152,14 @@ def run_dashboard(config: dict[str, Any]) -> None:
         row=0, column=4, padx=(8, 0)
     )
 
+    def open_contacts() -> str:
+        from src.gui.contacts import run_contacts_window
+
+        root.after(0, lambda: run_contacts_window(config))
+        return "Contacts opened"
+
+    ttk.Button(buttons, text="Contacts", command=lambda: run_async(open_contacts)).grid(
+        row=1, column=0, pady=(8, 0)
+    )
+
     root.mainloop()
