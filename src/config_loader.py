@@ -22,6 +22,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "ocr_engine": "easyocr",
     "search_delay_seconds": 1.5,
     "send_delay_seconds": 1.0,
+    "ui_action_interval_seconds": 0.2,
     "max_retry": 3,
 }
 
@@ -36,6 +37,7 @@ REQUIRED_TYPES: dict[str, type | tuple[type, ...]] = {
     "ocr_engine": str,
     "search_delay_seconds": (int, float),
     "send_delay_seconds": (int, float),
+    "ui_action_interval_seconds": (int, float),
     "max_retry": int,
 }
 
@@ -68,6 +70,7 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
 
     validated["search_delay_seconds"] = float(validated["search_delay_seconds"])
     validated["send_delay_seconds"] = float(validated["send_delay_seconds"])
+    validated["ui_action_interval_seconds"] = float(validated["ui_action_interval_seconds"])
     if validated["max_retry"] < 1:
         raise ConfigError("Invalid config key 'max_retry': must be >= 1")
     return validated

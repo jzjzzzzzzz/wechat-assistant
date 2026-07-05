@@ -8,4 +8,5 @@ log_file: "logs/app.log"
 ocr_engine: "easyocr"
 search_delay_seconds: 1.5
 send_delay_seconds: 1.0
+ui_action_interval_seconds: 0.2
 max_retry: 3

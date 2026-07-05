@@ -7,7 +7,7 @@ import time
 from typing import Any, Callable
 
 from src.screenshot import capture_screenshot
-from src.wechat_window import search_contact
+from src.wechat_window import UiActionResult, search_contact
 
 
 LOGGER = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ def send_message(
     target: str,
     message: str,
     *,
-    search_func: Callable[[str, dict[str, Any]], bool] = search_contact,
+    search_func: Callable[[str, dict[str, Any]], bool | UiActionResult] = search_contact,
     paste_func: Callable[[str], bool] = _paste_message,
     enter_func: Callable[[], bool] = _press_enter,
     screenshot_func: Callable[[dict[str, Any]], str | None] = capture_screenshot,
@@ -80,7 +80,11 @@ def send_message(
     for attempt in range(1, max_retry + 1):
         LOGGER.info("Send attempt %s/%s for target=%s", attempt, max_retry, target)
         try:
-            if not search_func(target, config):
+            search_result = search_func(target, config)
+            if isinstance(search_result, UiActionResult):
+                if not search_result.ok:
+                    raise RuntimeError(search_result.message)
+            elif not search_result:
                 raise RuntimeError("contact search failed")
             if not paste_func(message):
                 raise RuntimeError("message paste failed")
@@ -91,7 +95,8 @@ def send_message(
             LOGGER.info("Message sent. Screenshot after send: %s", screenshot_path)
             return True
         except Exception as exc:
-            LOGGER.error("Send attempt %s failed: %s", attempt, exc)
+            screenshot_path = screenshot_func(config)
+            LOGGER.error("Send attempt %s failed: %s. Screenshot: %s", attempt, exc, screenshot_path)
             if attempt < max_retry:
                 time.sleep(float(config.get("send_delay_seconds", 1.0)))
 

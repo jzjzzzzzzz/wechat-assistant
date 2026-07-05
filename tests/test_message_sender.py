@@ -2,6 +2,7 @@ from datetime import date
 
 from src.message_sender import send_message
 from src.scheduler import birthday_matches
+from src.wechat_window import UiActionResult
 
 
 def test_message_sender_dry_run_does_not_call_real_actions() -> None:
@@ -25,6 +26,29 @@ def test_message_sender_dry_run_does_not_call_real_actions() -> None:
 
     assert result is True
     assert calls == []
+
+
+def test_message_sender_captures_screenshot_on_real_search_failure() -> None:
+    calls: list[str] = []
+    config = {
+        "dry_run": False,
+        "allow_real_send": True,
+        "max_retry": 2,
+        "send_delay_seconds": 0,
+    }
+
+    result = send_message(
+        config,
+        "文件传输助手",
+        "hello",
+        search_func=lambda target, cfg: UiActionResult("search_contact", False, "search failed"),
+        paste_func=lambda message: calls.append("paste") or True,
+        enter_func=lambda: calls.append("enter") or True,
+        screenshot_func=lambda cfg: calls.append("screenshot") or "failure.png",
+    )
+
+    assert result is False
+    assert calls == ["screenshot", "screenshot"]
 
 
 def test_birthday_matches_mm_dd() -> None:
