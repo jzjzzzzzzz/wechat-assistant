@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -13,6 +14,25 @@ from src.wechat_window import activate_wechat_result, get_wechat_window_rect
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _is_wechat_frontmost(app_name: str = "WeChat") -> bool:
+    script = 'tell application "System Events" to get name of first process whose frontmost is true'
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        frontmost = result.stdout.strip()
+        ok = frontmost == app_name
+        if not ok:
+            LOGGER.warning("Unread scan skipped: frontmost app is %r, not %r.", frontmost, app_name)
+        return ok
+    except Exception as exc:
+        LOGGER.warning("Unread scan skipped: could not verify frontmost app: %s", exc)
+        return False
 
 
 def _capture_chat_list_area(config: dict[str, Any]) -> str | None:
@@ -30,13 +50,20 @@ def _capture_chat_list_area(config: dict[str, Any]) -> str | None:
 
     rect = get_wechat_window_rect()
     try:
+        full_image = pyautogui.screenshot()
+        display_width, display_height = pyautogui.size()
+        scale_x = full_image.width / float(display_width or full_image.width)
+        scale_y = full_image.height / float(display_height or full_image.height)
         if rect is None:
-            width, height = pyautogui.size()
-            region = (0, 0, min(360, int(width)), int(height))
+            region = (0, 0, min(360, int(display_width)), int(display_height))
         else:
             x, y, _width, height = rect
             region = (x, y, 360, height)
-        image = pyautogui.screenshot(region=region)
+        left = max(0, int(region[0] * scale_x))
+        top = max(0, int(region[1] * scale_y))
+        right = min(full_image.width, int((region[0] + region[2]) * scale_x))
+        bottom = min(full_image.height, int((region[1] + region[3]) * scale_y))
+        image = full_image.crop((left, top, right, bottom))
         image.save(output_path)
         LOGGER.info("Captured unread chat list screenshot: %s", output_path)
         return str(output_path)
@@ -49,8 +76,7 @@ def _capture_chat_list_area(config: dict[str, Any]) -> str | None:
 
 
 def _looks_unread(text: str) -> bool:
-    lowered = text.casefold()
-    return any(marker in lowered for marker in ("未读", "unread", "[", "条"))
+    return "未读" in text
 
 
 def _candidate_names(ocr_items: list[dict[str, Any]]) -> list[tuple[str, float]]:
@@ -74,6 +100,7 @@ def scan_unread_events(
     config: dict[str, Any],
     *,
     activate_func: Callable[..., Any] = activate_wechat_result,
+    frontmost_func: Callable[[str], bool] = _is_wechat_frontmost,
     capture_func: Callable[[dict[str, Any]], str | None] = _capture_chat_list_area,
     ocr_func: Callable[..., list[dict[str, Any]]] = read_image_text,
     now_func: Callable[[], datetime] = datetime.now,
@@ -86,6 +113,8 @@ def scan_unread_events(
         return []
     if activation is False:
         LOGGER.warning("Unread scan skipped: WeChat activation failed.")
+        return []
+    if not frontmost_func(app_name):
         return []
 
     screenshot_path = capture_func(config)
