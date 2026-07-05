@@ -186,7 +186,10 @@ The GUI calls existing services. It does not duplicate or weaken sending safety 
 
 ## Local Data Files
 
-Project-owned local data lives under `data/`:
+Project-owned local data lives under `data/`. The tracked CSV files in this
+repository are sample placeholders for local development, not production
+records. Before publishing your own fork, replace any personal names, remarks,
+dates, or messages with neutral examples.
 
 - `contacts_cache.csv`: OCR candidate cache
 - `birthday_tasks.csv`: birthday dry-run task input
