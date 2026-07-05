@@ -63,6 +63,19 @@ python -m src.main birthday-check
 python -m src.main gui
 ```
 
+To register the daily birthday job with macOS `launchd`:
+
+```bash
+./scripts/install_birthday_launchagent.sh
+```
+
+This installs a user LaunchAgent that calls `scripts/birthday_cron.sh` at `00:00`
+while you are logged in. To remove it:
+
+```bash
+./scripts/uninstall_birthday_launchagent.sh
+```
+
 Run tests:
 
 ```bash
