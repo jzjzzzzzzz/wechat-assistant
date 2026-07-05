@@ -42,6 +42,72 @@ def list_contacts(connection: sqlite3.Connection) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def get_contact_by_name(connection: sqlite3.Connection, contact_name: str) -> dict[str, Any] | None:
+    row = connection.execute("SELECT * FROM contacts WHERE contact_name = ?", (contact_name,)).fetchone()
+    return dict(row) if row else None
+
+
+def upsert_contact_candidate(
+    connection: sqlite3.Connection,
+    contact_name: str,
+    *,
+    source: str = "ocr",
+    confidence: float = 0.0,
+) -> tuple[int, bool]:
+    existing = get_contact_by_name(connection, contact_name)
+    if existing is None:
+        contact_id = create_contact(
+            connection,
+            contact_name,
+            source=source,
+            confidence=confidence,
+            reviewed=False,
+            enabled=True,
+        )
+        return contact_id, True
+
+    if float(confidence) > float(existing["confidence"]):
+        connection.execute(
+            """
+            UPDATE contacts
+            SET source = ?, confidence = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (source, float(confidence), _now(), existing["id"]),
+        )
+        connection.commit()
+    return int(existing["id"]), False
+
+
+def set_contact_reviewed(connection: sqlite3.Connection, contact_name: str, reviewed: bool = True) -> bool:
+    cursor = connection.execute(
+        "UPDATE contacts SET reviewed = ?, updated_at = ? WHERE contact_name = ?",
+        (_bool(reviewed), _now(), contact_name),
+    )
+    connection.commit()
+    return cursor.rowcount > 0
+
+
+def set_contact_enabled(connection: sqlite3.Connection, contact_name: str, enabled: bool) -> bool:
+    cursor = connection.execute(
+        "UPDATE contacts SET enabled = ?, updated_at = ? WHERE contact_name = ?",
+        (_bool(enabled), _now(), contact_name),
+    )
+    connection.commit()
+    return cursor.rowcount > 0
+
+
+def list_enabled_reviewed_contacts(connection: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = connection.execute(
+        """
+        SELECT * FROM contacts
+        WHERE enabled = 1 AND reviewed = 1
+        ORDER BY contact_name
+        """
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def create_birthday_task(
     connection: sqlite3.Connection,
     wechat_remark: str,
