@@ -69,14 +69,52 @@ pytest
 
 ## macOS Permissions
 
-Open System Settings and enable permissions for the terminal app you use:
+WeChat Assistant needs two macOS permissions to take screenshots and control the keyboard/mouse.
+Open **System Settings → Privacy & Security** and grant both to the app you run Python from.
 
-- Privacy & Security > Accessibility
-- Privacy & Security > Screen Recording
+### Screen Recording
 
-If screenshot or mouse control fails, enable these permissions, quit and reopen the terminal, then run the command again.
+Path: **System Settings → Privacy & Security → Screen Recording**
 
-`python -m src.main check` prints the Python version, verifies that the platform is macOS, attempts a screenshot, and attempts a no-op mouse move. Permission failures are logged to `logs/app.log`.
+Add and enable the app you use to run Python:
+
+| App | Common path |
+|-----|-------------|
+| Terminal | built-in, listed automatically |
+| iTerm2 | `/Applications/iTerm.app` |
+| Visual Studio Code | `/Applications/Visual Studio Code.app` |
+| Cursor | `/Applications/Cursor.app` |
+
+Without Screen Recording permission, `python -m src.main screenshot` and
+`python -m src.main check` will fail with a permission error (safe failure — the
+project does not crash, it logs and exits).
+
+### Accessibility
+
+Path: **System Settings → Privacy & Security → Accessibility**
+
+Add and enable the same app (Terminal / iTerm2 / VS Code / Cursor).
+
+Without Accessibility permission, `pyautogui` cannot move the mouse or type, so
+`test-send` and `manual-test` will not be able to interact with WeChat windows.
+
+### After Granting Permissions
+
+> **Important:** After enabling either permission, you must **completely quit** the
+> terminal app (Cmd+Q, not just close the window) and **reopen it**. macOS does not
+> apply the new permission to an already-running process. Skipping this step is the
+> most common reason the permission appears granted but commands still fail.
+
+Quick checklist:
+1. Open System Settings → Privacy & Security → Screen Recording, add your terminal app, toggle it on.
+2. Open System Settings → Privacy & Security → Accessibility, add your terminal app, toggle it on.
+3. Quit the terminal completely (Cmd+Q).
+4. Reopen the terminal and reactivate the virtual environment: `source .venv/bin/activate`
+5. Run `python -m src.main check` to verify.
+
+`python -m src.main check` prints the Python version, verifies that the platform is
+macOS, attempts a screenshot, and attempts a no-op mouse move. Permission failures are
+logged to `logs/app.log`.
 
 ## Dry Run and Real Sending
 

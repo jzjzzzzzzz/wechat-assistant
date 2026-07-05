@@ -62,12 +62,46 @@ python -m src.main gui
 
 ## Expected Permission Failures
 
-If `check` reports missing Screen Recording or Accessibility permission, fix it in:
+If `check` reports missing Screen Recording or Accessibility permission, you must
+grant them in System Settings **and then completely restart the terminal**.
 
-- System Settings > Privacy & Security > Screen Recording
-- System Settings > Privacy & Security > Accessibility
+### Screen Recording
 
-Then restart the terminal and rerun the smoke test.
+**System Settings → Privacy & Security → Screen Recording**
+
+Add and enable whichever app you run Python from:
+
+- **Terminal** — listed automatically (built-in)
+- **iTerm2** — `/Applications/iTerm.app`
+- **Visual Studio Code** — `/Applications/Visual Studio Code.app`
+- **Cursor** — `/Applications/Cursor.app`
+
+Without this permission, `screenshot` and `check` fail safely (they log the error
+and exit without crashing).
+
+### Accessibility
+
+**System Settings → Privacy & Security → Accessibility**
+
+Add and enable the same app listed above.
+
+Without this permission, `pyautogui` cannot simulate keyboard or mouse events, so
+WeChat window activation and input box interaction do not work.
+
+### After Granting Either Permission
+
+> **You must completely quit the terminal app (Cmd+Q — not just close the window)
+> and reopen it.** macOS does not apply new permissions to an already-running
+> process. This is the most common reason a permission appears enabled but commands
+> still report a failure.
+
+Steps:
+1. System Settings → Privacy & Security → Screen Recording → add your app → toggle on.
+2. System Settings → Privacy & Security → Accessibility → add your app → toggle on.
+3. Quit the terminal completely with **Cmd+Q**.
+4. Reopen the terminal.
+5. `cd ~/学习资料/wechat-assistant && source .venv/bin/activate`
+6. `python -m src.main check`
 
 ## Real Sending
 
