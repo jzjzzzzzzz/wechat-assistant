@@ -1,0 +1,2 @@
+reminder_id,target,remind_at,message,repeat,enabled
+sample,文件传输助手,2099-01-01 09:00,Sample reminder,none,false
