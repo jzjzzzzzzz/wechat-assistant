@@ -14,13 +14,28 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="wechat-assistant")
     parser.add_argument(
         "command",
-        choices=["check", "screenshot", "test-send", "ocr", "scan-contacts", "birthday-check", "gui"],
+        choices=[
+            "check",
+            "screenshot",
+            "test-send",
+            "ocr",
+            "scan-contacts",
+            "birthday-check",
+            "gui",
+            "manual-test",
+        ],
         help="Command to run",
+    )
+    parser.add_argument("--plan-only", action="store_true", help="Only print the manual smoke-test plan.")
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Run confirmation-gated manual smoke-test UI actions. Does not enable real sending.",
     )
     return parser
 
 
-def run_command(command: str) -> int:
+def run_command(command: str, *, plan_only: bool = False, assume_yes: bool = False) -> int:
     try:
         config = load_config()
     except ConfigError as exc:
@@ -74,6 +89,18 @@ def run_command(command: str) -> int:
         run_dashboard(config)
         return 0
 
+    if command == "manual-test":
+        from src.manual_smoke import print_manual_smoke_plan, run_manual_smoke_test
+
+        print_manual_smoke_plan()
+        if plan_only:
+            return 0
+        results = run_manual_smoke_test(assume_yes=assume_yes)
+        for result in results:
+            status = "OK" if result.ok else "CHECK"
+            print(f"[{status}] {result.name}: {result.message}")
+        return 0 if all(result.ok for result in results if result.name != "permissions") else 1
+
     logger.error("Unknown command: %s", command)
     return 2
 
@@ -81,7 +108,7 @@ def run_command(command: str) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    return run_command(args.command)
+    return run_command(args.command, plan_only=args.plan_only, assume_yes=args.yes)
 
 
 if __name__ == "__main__":

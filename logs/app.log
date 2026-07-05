@@ -16,3 +16,26 @@
 2026-07-05 09:11:47 ERROR [src.mac_permissions] Screenshot check failed. Enable System Settings > Privacy & Security > Screen Recording for your terminal. Error: Command '['screencapture', '-x', '/var/folders/_f/rfzfjsvd08s1c7n43csc65zc0000gn/T/tmp53gyujkr.png']' returned non-zero exit status 1.
 2026-07-05 09:11:47 WARNING [src.mac_permissions] Mouse control check skipped because screenshot access failed first. Enable Screen Recording, restart the terminal, then rerun check; Accessibility will be checked after screenshots work.
 2026-07-05 09:11:47 INFO [src.mac_permissions] Required macOS permissions: System Settings > Privacy & Security > Accessibility, and System Settings > Privacy & Security > Screen Recording.
+2026-07-05 09:14:20 INFO [wechat_assistant] Running command: check
+2026-07-05 09:14:20 INFO [src.mac_permissions] Current platform: Darwin. Python: 3.13.14
+2026-07-05 09:14:21 INFO [src.mac_permissions] Screenshot check passed. Captured size: (3024, 1964)
+2026-07-05 09:14:21 INFO [src.mac_permissions] Mouse control check passed.
+2026-07-05 09:14:21 INFO [src.mac_permissions] Required macOS permissions: System Settings > Privacy & Security > Accessibility, and System Settings > Privacy & Security > Screen Recording.
+2026-07-05 09:14:26 INFO [wechat_assistant] Running command: screenshot
+2026-07-05 09:14:27 INFO [src.screenshot] Screenshot saved: /Users/jz/学习资料/wechat-assistant/screenshots/screenshot_20260705_091426.png
+2026-07-05 09:14:44 INFO [wechat_assistant] Running command: test-send
+2026-07-05 09:14:45 INFO [src.message_sender] Preparing message. Target=文件传输助手 dry_run=True
+2026-07-05 09:14:45 INFO [src.message_sender] Dry run only. No WeChat UI action performed. Reason: dry_run is true
+2026-07-05 09:14:45 INFO [src.audit] Recorded audit event id=1 type=dry_run_send
+2026-07-05 09:19:32 INFO [wechat_assistant] Running command: check
+2026-07-05 09:19:32 INFO [src.mac_permissions] Current platform: Darwin. Python: 3.13.14
+2026-07-05 09:19:32 ERROR [src.mac_permissions] Screenshot check failed. Enable System Settings > Privacy & Security > Screen Recording for your terminal. Error: Command '['screencapture', '-x', '/var/folders/_f/rfzfjsvd08s1c7n43csc65zc0000gn/T/tmp2ag3uvwj.png']' returned non-zero exit status 1.
+2026-07-05 09:19:32 WARNING [src.mac_permissions] Mouse control check skipped because screenshot access failed first. Enable Screen Recording, restart the terminal, then rerun check; Accessibility will be checked after screenshots work.
+2026-07-05 09:19:32 INFO [src.mac_permissions] Required macOS permissions: System Settings > Privacy & Security > Accessibility, and System Settings > Privacy & Security > Screen Recording.
+2026-07-05 09:19:41 INFO [wechat_assistant] Running command: screenshot
+2026-07-05 09:19:41 ERROR [src.screenshot] Screenshot failed. Enable System Settings > Privacy & Security > Screen Recording for your terminal. Error: Command '['screencapture', '-x', '/var/folders/_f/rfzfjsvd08s1c7n43csc65zc0000gn/T/tmpklhm76es.png']' returned non-zero exit status 1.
+2026-07-05 09:19:48 INFO [wechat_assistant] Running command: test-send
+2026-07-05 09:19:48 INFO [src.message_sender] Preparing message. Target=文件传输助手 dry_run=True
+2026-07-05 09:19:48 INFO [src.message_sender] Dry run only. No WeChat UI action performed. Reason: dry_run is true
+2026-07-05 09:19:48 INFO [src.audit] Recorded audit event id=2 type=dry_run_send
+2026-07-05 09:19:56 INFO [wechat_assistant] Running command: manual-test
