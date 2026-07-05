@@ -187,15 +187,50 @@ def schedule_daily_birthday_check(config: dict[str, Any]) -> None:
     LOGGER.info("Registered daily birthday check for 00:00.")
 
 
+def _already_sent_today(config: dict[str, Any], target: str, today: date) -> bool:
+    """Return True if a real_send_success audit event exists for target today."""
+    try:
+        from src.database import connect_database, initialize_database
+        db_path = config.get("database_path", "data/wechat_assistant.sqlite3")
+        initialize_database(db_path)
+        conn = connect_database(db_path)
+        today_prefix = today.isoformat()  # "YYYY-MM-DD"
+        row = conn.execute(
+            "SELECT id FROM audit_events "
+            "WHERE event_type = 'real_send_success' "
+            "AND target = ? "
+            "AND created_at LIKE ? "
+            "LIMIT 1",
+            (target, f"{today_prefix}%"),
+        ).fetchone()
+        conn.close()
+        if row:
+            LOGGER.info(
+                "Duplicate birthday send prevented: already sent to %s today (audit id=%s)",
+                target, row[0],
+            )
+            return True
+        return False
+    except Exception as exc:
+        LOGGER.warning("Could not check audit log for duplicate; proceeding: %s", exc)
+        return False
+
+
 def execute_birthday_plans(
     config: dict[str, Any],
     plans: list["BirthdayTaskPlan"],
+    *,
+    today: date | None = None,
 ) -> list[dict[str, Any]]:
     """Execute a list of birthday plans: send real messages or log dry-run.
+
+    Skips any plan where a real_send_success was already recorded today for
+    the same target (prevents duplicate sends on launchd retry / wake-up runs).
 
     Returns a list of result dicts with keys: target, message, sent, reason.
     """
     from src.message_sender import send_message
+    check_date = today or date.today()
 
     results: list[dict[str, Any]] = []
     for plan in plans:
@@ -211,6 +246,14 @@ def execute_birthday_plans(
                 "message": plan.message,
                 "sent": False,
                 "reason": plan.block_reason,
+            })
+        elif _already_sent_today(config, plan.wechat_remark, check_date):
+            print(f"[SKIP] {plan.wechat_remark}: already sent today — skipping duplicate.")
+            results.append({
+                "target": plan.wechat_remark,
+                "message": plan.message,
+                "sent": False,
+                "reason": "already_sent_today",
             })
         else:
             LOGGER.info("Sending birthday message. target=%s", plan.wechat_remark)
