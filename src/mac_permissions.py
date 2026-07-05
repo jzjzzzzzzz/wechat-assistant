@@ -83,7 +83,19 @@ def check_mouse_control() -> PermissionCheckResult:
 
 def run_environment_checks() -> list[PermissionCheckResult]:
     """Run all macOS checks and return structured results."""
-    results = [check_platform(), check_screenshot(), check_mouse_control()]
+    results = [check_platform()]
+    screenshot_result = check_screenshot()
+    results.append(screenshot_result)
+    if screenshot_result.ok:
+        results.append(check_mouse_control())
+    else:
+        message = (
+            "Mouse control check skipped because screenshot access failed first. "
+            "Enable Screen Recording, restart the terminal, then rerun check; "
+            "Accessibility will be checked after screenshots work."
+        )
+        LOGGER.warning(message)
+        results.append(PermissionCheckResult("mouse_control", False, message))
     reminder = (
         "Required macOS permissions: System Settings > Privacy & Security > "
         "Accessibility, and System Settings > Privacy & Security > Screen Recording."
