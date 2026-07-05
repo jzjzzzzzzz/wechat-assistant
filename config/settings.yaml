@@ -6,6 +6,7 @@ wechat_app_name: "WeChat"
 screenshot_dir: "screenshots"
 log_file: "logs/app.log"
 database_path: "data/wechat_assistant.sqlite3"
+audit_enabled: true
 ocr_engine: "easyocr"
 ocr_confidence_threshold: 0.3
 search_delay_seconds: 1.5

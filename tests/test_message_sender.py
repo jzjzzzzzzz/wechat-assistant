@@ -1,6 +1,9 @@
 from datetime import date
+from pathlib import Path
 
+from src.database import connect_database
 from src.message_sender import send_message
+from src.repositories import list_audit_events
 from src.scheduler import birthday_matches
 from src.wechat_window import UiActionResult
 
@@ -26,6 +29,48 @@ def test_message_sender_dry_run_does_not_call_real_actions() -> None:
 
     assert result is True
     assert calls == []
+
+
+def test_message_sender_dry_run_writes_audit_when_enabled(tmp_path: Path) -> None:
+    database_path = tmp_path / "wechat_assistant.sqlite3"
+    config = {
+        "dry_run": True,
+        "allow_real_send": False,
+        "audit_enabled": True,
+        "database_path": str(database_path),
+        "max_retry": 3,
+        "send_delay_seconds": 0,
+    }
+
+    result = send_message(config, "文件传输助手", "hello")
+
+    assert result is True
+    with connect_database(database_path) as connection:
+        events = list_audit_events(connection)
+    assert len(events) == 1
+    assert events[0]["event_type"] == "dry_run_send"
+    assert events[0]["safety_decision"] == "dry_run"
+
+
+def test_message_sender_blocked_real_send_writes_audit_when_enabled(tmp_path: Path) -> None:
+    database_path = tmp_path / "wechat_assistant.sqlite3"
+    config = {
+        "dry_run": False,
+        "allow_real_send": False,
+        "audit_enabled": True,
+        "database_path": str(database_path),
+        "max_retry": 3,
+        "send_delay_seconds": 0,
+    }
+
+    result = send_message(config, "文件传输助手", "hello")
+
+    assert result is False
+    with connect_database(database_path) as connection:
+        events = list_audit_events(connection)
+    assert len(events) == 1
+    assert events[0]["event_type"] == "blocked_real_send"
+    assert events[0]["safety_decision"] == "blocked"
 
 
 def test_message_sender_captures_screenshot_on_real_search_failure() -> None:

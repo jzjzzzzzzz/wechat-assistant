@@ -6,6 +6,7 @@ import logging
 import time
 from typing import Any, Callable
 
+from src.audit import AuditEventType, write_audit_event
 from src.screenshot import capture_screenshot
 from src.screen_state import ScreenStateDetection, detect_screen_state, real_send_allowed_by_screen_state
 from src.wechat_window import UiActionResult, search_contact
@@ -84,17 +85,41 @@ def send_message(
     if config.get("dry_run", True):
         print(f"DRY RUN: would send to {target}: {message}")
         LOGGER.info("Dry run only. No WeChat UI action performed. Reason: %s", reason)
+        write_audit_event(
+            config,
+            AuditEventType.DRY_RUN_SEND,
+            target=target,
+            message=message,
+            safety_decision="dry_run",
+            metadata={"reason": reason},
+        )
         return True
 
     if not can_send:
         print(f"REAL SEND BLOCKED: {reason}")
         LOGGER.warning("Real send blocked for target=%s. Reason: %s", target, reason)
+        write_audit_event(
+            config,
+            AuditEventType.BLOCKED_REAL_SEND,
+            target=target,
+            message=message,
+            safety_decision="blocked",
+            metadata={"reason": reason},
+        )
         return False
 
     screen_ok, screen_reason = _real_send_screen_state_check(config, screenshot_func, screen_state_func)
     if not screen_ok:
         print(f"REAL SEND BLOCKED: {screen_reason}")
         LOGGER.warning("Real send blocked before UI action. Reason: %s", screen_reason)
+        write_audit_event(
+            config,
+            AuditEventType.BLOCKED_REAL_SEND,
+            target=target,
+            message=message,
+            safety_decision="blocked",
+            metadata={"reason": screen_reason},
+        )
         return False
 
     print("REAL SEND ENABLED")
@@ -119,10 +144,26 @@ def send_message(
                 raise RuntimeError("press Enter failed")
             screenshot_path = screenshot_func(config)
             LOGGER.info("Message sent. Screenshot after send: %s", screenshot_path)
+            write_audit_event(
+                config,
+                AuditEventType.REAL_SEND_SUCCESS,
+                target=target,
+                message=message,
+                safety_decision="sent",
+                metadata={"screenshot_path": screenshot_path},
+            )
             return True
         except Exception as exc:
             screenshot_path = screenshot_func(config)
             LOGGER.error("Send attempt %s failed: %s. Screenshot: %s", attempt, exc, screenshot_path)
+            write_audit_event(
+                config,
+                AuditEventType.REAL_SEND_FAILURE,
+                target=target,
+                message=message,
+                safety_decision="failed_attempt",
+                metadata={"attempt": attempt, "error": str(exc), "screenshot_path": screenshot_path},
+            )
             if attempt < max_retry:
                 time.sleep(float(config.get("send_delay_seconds", 1.0)))
 
