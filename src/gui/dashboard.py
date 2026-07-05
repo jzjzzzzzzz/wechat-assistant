@@ -142,4 +142,14 @@ def run_dashboard(config: dict[str, Any]) -> None:
     )
     ttk.Button(buttons, text="Logs", command=lambda: run_async(runner.open_logs)).grid(row=0, column=3)
 
+    def open_settings() -> str:
+        from src.gui.settings import run_settings_window
+
+        root.after(0, run_settings_window)
+        return "Settings opened"
+
+    ttk.Button(buttons, text="Settings", command=lambda: run_async(open_settings)).grid(
+        row=0, column=4, padx=(8, 0)
+    )
+
     root.mainloop()
