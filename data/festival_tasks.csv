@@ -1,0 +1,2 @@
+festival_name,festival_date,wechat_remark,message_template,enabled
+New Year,01-01,文件传输助手,"{festival}快乐，{name}",false
