@@ -49,6 +49,7 @@ python -m src.main test-send
 python -m src.main ocr
 python -m src.main scan-contacts
 python -m src.main birthday-check
+python -m src.main gui
 ```
 
 Run tests:

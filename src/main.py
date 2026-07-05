@@ -14,7 +14,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="wechat-assistant")
     parser.add_argument(
         "command",
-        choices=["check", "screenshot", "test-send", "ocr", "scan-contacts", "birthday-check"],
+        choices=["check", "screenshot", "test-send", "ocr", "scan-contacts", "birthday-check", "gui"],
         help="Command to run",
     )
     return parser
@@ -66,6 +66,12 @@ def run_command(command: str) -> int:
 
         tasks = check_birthdays(config)
         print(f"Matched {len(tasks)} birthday task(s).")
+        return 0
+
+    if command == "gui":
+        from src.gui.dashboard import run_dashboard
+
+        run_dashboard(config)
         return 0
 
     logger.error("Unknown command: %s", command)
