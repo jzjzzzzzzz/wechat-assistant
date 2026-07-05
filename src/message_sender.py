@@ -7,6 +7,7 @@ import time
 from typing import Any, Callable
 
 from src.screenshot import capture_screenshot
+from src.screen_state import ScreenStateDetection, detect_screen_state, real_send_allowed_by_screen_state
 from src.wechat_window import UiActionResult, search_contact
 
 
@@ -48,6 +49,24 @@ def _press_enter() -> bool:
         return False
 
 
+def _real_send_screen_state_check(
+    config: dict[str, Any],
+    screenshot_func: Callable[[dict[str, Any]], str | None],
+    screen_state_func: Callable[[str | None], ScreenStateDetection],
+) -> tuple[bool, str]:
+    if not config.get("require_known_screen_state_for_real_send", True):
+        return True, "screen-state real-send check disabled by config"
+
+    screenshot_path = screenshot_func(config)
+    detection = screen_state_func(screenshot_path)
+    allowed, reason = real_send_allowed_by_screen_state(detection)
+    if allowed:
+        LOGGER.info(reason)
+    else:
+        LOGGER.warning(reason)
+    return allowed, reason
+
+
 def send_message(
     config: dict[str, Any],
     target: str,
@@ -57,6 +76,7 @@ def send_message(
     paste_func: Callable[[str], bool] = _paste_message,
     enter_func: Callable[[], bool] = _press_enter,
     screenshot_func: Callable[[dict[str, Any]], str | None] = capture_screenshot,
+    screen_state_func: Callable[[str | None], ScreenStateDetection] = detect_screen_state,
 ) -> bool:
     LOGGER.info("Preparing message. Target=%s dry_run=%s", target, config.get("dry_run", True))
 
@@ -69,6 +89,12 @@ def send_message(
     if not can_send:
         print(f"REAL SEND BLOCKED: {reason}")
         LOGGER.warning("Real send blocked for target=%s. Reason: %s", target, reason)
+        return False
+
+    screen_ok, screen_reason = _real_send_screen_state_check(config, screenshot_func, screen_state_func)
+    if not screen_ok:
+        print(f"REAL SEND BLOCKED: {screen_reason}")
+        LOGGER.warning("Real send blocked before UI action. Reason: %s", screen_reason)
         return False
 
     print("REAL SEND ENABLED")

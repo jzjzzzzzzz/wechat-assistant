@@ -33,6 +33,7 @@ def test_message_sender_captures_screenshot_on_real_search_failure() -> None:
     config = {
         "dry_run": False,
         "allow_real_send": True,
+        "require_known_screen_state_for_real_send": False,
         "max_retry": 2,
         "send_delay_seconds": 0,
     }
@@ -49,6 +50,30 @@ def test_message_sender_captures_screenshot_on_real_search_failure() -> None:
 
     assert result is False
     assert calls == ["screenshot", "screenshot"]
+
+
+def test_message_sender_blocks_real_send_when_screen_state_unknown() -> None:
+    calls: list[str] = []
+    config = {
+        "dry_run": False,
+        "allow_real_send": True,
+        "require_known_screen_state_for_real_send": True,
+        "max_retry": 1,
+        "send_delay_seconds": 0,
+    }
+
+    result = send_message(
+        config,
+        "文件传输助手",
+        "hello",
+        search_func=lambda target, cfg: calls.append("search") or True,
+        paste_func=lambda message: calls.append("paste") or True,
+        enter_func=lambda: calls.append("enter") or True,
+        screenshot_func=lambda cfg: calls.append("screenshot") or "screen.png",
+    )
+
+    assert result is False
+    assert calls == ["screenshot"]
 
 
 def test_birthday_matches_mm_dd() -> None:

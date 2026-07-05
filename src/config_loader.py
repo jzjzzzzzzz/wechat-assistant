@@ -23,6 +23,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "search_delay_seconds": 1.5,
     "send_delay_seconds": 1.0,
     "ui_action_interval_seconds": 0.2,
+    "require_known_screen_state_for_real_send": True,
     "max_retry": 3,
 }
 
@@ -38,6 +39,7 @@ REQUIRED_TYPES: dict[str, type | tuple[type, ...]] = {
     "search_delay_seconds": (int, float),
     "send_delay_seconds": (int, float),
     "ui_action_interval_seconds": (int, float),
+    "require_known_screen_state_for_real_send": bool,
     "max_retry": int,
 }
 
