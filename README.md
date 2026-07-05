@@ -2,7 +2,7 @@
 
 WeChat Assistant is a macOS Python automation project for controlling the already logged-in WeChat for Mac UI with `pyautogui`, screenshots, OCR, and local configuration files.
 
-The first phase focuses on environment checks, WeChat window control, screenshots, safe test-message sending, logging, configuration, OCR contact scanning, and a birthday-task skeleton.
+The project now includes a safe CLI foundation, a Tkinter GUI dashboard, local SQLite support, OCR/contact tooling, dry-run schedulers, local templates, audit logs, plugin manifest discovery, and macOS packaging support.
 
 ## Project Status
 
@@ -15,8 +15,15 @@ Implemented:
 - screenshot capture
 - safe dry-run test message flow
 - OCR contact candidate extraction into `data/contacts_cache.csv`
-- birthday task CSV matching skeleton
-- pytest coverage for config, dry-run sending, and birthday matching
+- local SQLite database owned by this project
+- contact manager for reviewed/disabled local contacts
+- birthday, festival, and custom reminder dry-run planning
+- local message template rendering
+- structured audit events for dry-run and blocked send decisions
+- Tkinter dashboard with settings, contacts, tasks, and log viewer windows
+- manifest-only local plugin skeleton
+- macOS packaging script and packaging exclusion rules
+- pytest coverage for safety, config, UI automation, OCR cleanup, database, GUI view models, schedulers, templates, plugins, and packaging helpers
 
 ## Safety
 
@@ -30,6 +37,8 @@ Implemented:
   - `dry_run: false`
   - `allow_real_send: true`
 - Birthday and future batch features are dry-run first and must not be used for uncontrolled group sending.
+- GUI views do not expose normal-contact real-send actions.
+- Plugin manifests cannot enable direct sending or bypass safety gates.
 
 ## Setup
 
@@ -107,6 +116,39 @@ python -m src.main test-send
 
 The command must print `REAL SEND ENABLED`, the target, and the message before pressing Enter. If the visible screen state cannot be confirmed, the send is blocked. Do not use this path for normal contacts.
 
+## GUI
+
+Start the local dashboard:
+
+```bash
+python -m src.main gui
+```
+
+The dashboard shows dry-run status and opens safe local tools:
+
+- environment check
+- screenshot
+- dry-run test send
+- settings editor
+- contacts reviewer
+- birthday task manager
+- read-only log viewer
+
+The GUI calls existing services. It does not duplicate or weaken sending safety rules.
+
+## Local Data Files
+
+Project-owned local data lives under `data/`:
+
+- `contacts_cache.csv`: OCR candidate cache
+- `birthday_tasks.csv`: birthday dry-run task input
+- `message_templates.csv`: local message templates
+- `festival_tasks.csv`: festival dry-run task input
+- `reminders.csv`: custom reminder dry-run input
+- `wechat_assistant.sqlite3`: optional project-owned runtime database, ignored by Git
+
+These files are not WeChat internal data.
+
 ## Local Project Database
 
 The optional SQLite database at `data/wechat_assistant.sqlite3` is owned by WeChat Assistant. It stores only project data such as reviewed contacts, local tasks, message templates, and audit events.
@@ -120,6 +162,14 @@ The `plugins/` directory supports local manifest-only plugin discovery. The curr
 ## Packaging
 
 Local macOS packaging is documented in `packaging/README.md`. Packaging must exclude runtime logs, screenshots, local SQLite databases, caches, and virtual environments. The packaged app keeps dry-run defaults and still requires macOS Accessibility and Screen Recording permissions.
+
+Packaging helper:
+
+```bash
+./scripts/build_macos_app.sh
+```
+
+The script requires PyInstaller to be installed and runs `pytest` before building.
 
 ## Testing Only 文件传输助手
 
@@ -149,11 +199,14 @@ With the default dry-run settings, the command prints and logs the planned actio
 - OCR is inaccurate: OCR is best-effort and writes cleaned candidate results to `data/contacts_cache.csv`; take a clearer screenshot and retry.
 - `easyocr` downloads models slowly: this is expected on first use.
 - `pytest` is missing: activate the virtual environment and run `pip install -r requirements.txt`.
+- GUI does not open: verify Python was installed with Tkinter support.
+- Real-send test is blocked: confirm both config flags are set and screen state can be recognized; blocked is the safe default.
+- Packaging fails: install PyInstaller in the active virtual environment and retry.
 
 ## Roadmap
 
-- GUI
-- Birthday greetings
-- Festival greetings
-- Contact cache management
-- Automatic reminders
+- Improve computer vision templates with sanitized assets
+- Improve OCR accuracy with crop regions and manual review
+- Expand GUI polish
+- Add controlled packaging verification
+- Keep normal-contact real sending disabled unless a future safety prompt explicitly authorizes it
