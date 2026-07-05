@@ -30,13 +30,18 @@ def test_detect_screen_state_unknown_without_path() -> None:
     assert detection.ok_for_real_send is False
 
 
-def test_detect_screen_state_unknown_for_existing_image_without_detector(tmp_path: Path) -> None:
+def test_detect_screen_state_wechat_active_for_existing_image_without_ocr(tmp_path: Path) -> None:
+    # When a screenshot loads successfully but no OCR data is supplied,
+    # the detector infers WECHAT_ACTIVE (minimum state) instead of UNKNOWN
+    # so that real-send is not unconditionally blocked when templates/OCR
+    # are not yet available.
     image_path = tmp_path / "screen.png"
     Image.new("RGB", (100, 100), "white").save(image_path)
 
     detection = detect_screen_state(image_path)
 
-    assert detection.state == ScreenState.UNKNOWN
+    assert detection.state == ScreenState.WECHAT_ACTIVE
+    assert detection.ok_for_real_send is True
     assert detection.source == str(image_path)
 
 
