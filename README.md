@@ -113,6 +113,10 @@ The optional SQLite database at `data/wechat_assistant.sqlite3` is owned by WeCh
 
 It must never read, import, decrypt, mirror, or inspect WeChat internal databases.
 
+## Local Plugin Skeleton
+
+The `plugins/` directory supports local manifest-only plugin discovery. The current skeleton validates `plugin.json` files but does not execute plugin code. Plugins cannot bypass `dry_run`, cannot call direct send actions, and cannot read WeChat databases.
+
 ## Testing Only 文件传输助手
 
 Keep this default in `config/settings.yaml`:
