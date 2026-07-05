@@ -20,6 +20,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "screenshot_dir": "screenshots",
     "log_file": "logs/app.log",
     "ocr_engine": "easyocr",
+    "ocr_confidence_threshold": 0.3,
     "search_delay_seconds": 1.5,
     "send_delay_seconds": 1.0,
     "ui_action_interval_seconds": 0.2,
@@ -37,6 +38,7 @@ REQUIRED_TYPES: dict[str, type | tuple[type, ...]] = {
     "screenshot_dir": str,
     "log_file": str,
     "ocr_engine": str,
+    "ocr_confidence_threshold": (int, float),
     "search_delay_seconds": (int, float),
     "send_delay_seconds": (int, float),
     "ui_action_interval_seconds": (int, float),
@@ -75,7 +77,10 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
     validated["search_delay_seconds"] = float(validated["search_delay_seconds"])
     validated["send_delay_seconds"] = float(validated["send_delay_seconds"])
     validated["ui_action_interval_seconds"] = float(validated["ui_action_interval_seconds"])
+    validated["ocr_confidence_threshold"] = float(validated["ocr_confidence_threshold"])
     validated["vision_template_threshold"] = float(validated["vision_template_threshold"])
+    if not 0.0 <= validated["ocr_confidence_threshold"] <= 1.0:
+        raise ConfigError("Invalid config key 'ocr_confidence_threshold': must be between 0 and 1")
     if not 0.0 <= validated["vision_template_threshold"] <= 1.0:
         raise ConfigError("Invalid config key 'vision_template_threshold': must be between 0 and 1")
     if validated["max_retry"] < 1:

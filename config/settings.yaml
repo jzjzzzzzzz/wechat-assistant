@@ -6,6 +6,7 @@ wechat_app_name: "WeChat"
 screenshot_dir: "screenshots"
 log_file: "logs/app.log"
 ocr_engine: "easyocr"
+ocr_confidence_threshold: 0.3
 search_delay_seconds: 1.5
 send_delay_seconds: 1.0
 ui_action_interval_seconds: 0.2

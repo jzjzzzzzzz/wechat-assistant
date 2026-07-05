@@ -12,7 +12,12 @@ from src.screenshot import latest_screenshot
 LOGGER = logging.getLogger(__name__)
 
 
-def read_image_text(image_path: str | Path, languages: list[str] | None = None) -> list[dict[str, Any]]:
+def read_image_text(
+    image_path: str | Path,
+    languages: list[str] | None = None,
+    *,
+    min_confidence: float = 0.0,
+) -> list[dict[str, Any]]:
     languages = languages or ["ch_sim", "en"]
     path = Path(image_path)
     if not path.exists():
@@ -31,11 +36,12 @@ def read_image_text(image_path: str | Path, languages: list[str] | None = None) 
     results: list[dict[str, Any]] = []
     for _bbox, text, confidence in raw_results:
         cleaned = str(text).strip()
-        if cleaned:
+        confidence = float(confidence)
+        if cleaned and confidence >= min_confidence:
             results.append(
                 {
                     "text": cleaned,
-                    "confidence": float(confidence),
+                    "confidence": confidence,
                     "source": str(path),
                 }
             )
@@ -48,4 +54,4 @@ def read_latest_screenshot_text(config: dict[str, Any]) -> list[dict[str, Any]]:
     if path is None:
         LOGGER.warning("No screenshot found for OCR.")
         return []
-    return read_image_text(path)
+    return read_image_text(path, min_confidence=float(config.get("ocr_confidence_threshold", 0.0)))
