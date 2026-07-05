@@ -135,7 +135,9 @@ dry_run: false
 allow_real_send: true
 ```
 
-The sender also refuses real sending to contacts other than `文件传输助手`.
+The sender refuses real sending unless the target is explicitly present in
+`allowed_real_contacts`. `文件传输助手` is always included as the built-in safe
+test target.
 
 For a real-send test, use only:
 
@@ -145,6 +147,12 @@ dry_run: false
 allow_real_send: true
 require_known_screen_state_for_real_send: true
 ```
+
+For a real birthday send to a personal contact, keep `dry_run: true` in
+`config/settings.yaml` and add the exact WeChat remark/display name to
+`allowed_real_contacts`. The scheduled script uses `--force-send` to enable real
+sending in memory for that run only, then the same whitelist and screen-state
+checks still apply.
 
 Then run:
 
@@ -238,7 +246,7 @@ With the default dry-run settings, the command prints and logs the planned actio
 - `easyocr` downloads models slowly: this is expected on first use.
 - `pytest` is missing: activate the virtual environment and run `pip install -r requirements.txt`.
 - GUI does not open: verify Python was installed with Tkinter support.
-- Real-send test is blocked: confirm both config flags are set and screen state can be recognized; blocked is the safe default.
+- Real-send test is blocked: confirm both config flags are set, the target is in `allowed_real_contacts`, and screen state can be recognized; blocked is the safe default.
 - Packaging fails: install PyInstaller in the active virtual environment and retry.
 
 ## Roadmap

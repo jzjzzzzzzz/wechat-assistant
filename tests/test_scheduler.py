@@ -80,7 +80,7 @@ def test_build_birthday_plans_blocks_non_test_target_even_when_real_send_flags_e
     assert "not in allowed_real_contacts" in plans[0].block_reason
 
 
-def test_build_birthday_plans_allows_only_file_transfer_helper_when_flags_enabled() -> None:
+def test_build_birthday_plans_allows_file_transfer_helper_when_flags_enabled() -> None:
     plans = build_birthday_plans(
         [
             {
@@ -96,6 +96,29 @@ def test_build_birthday_plans_allows_only_file_transfer_helper_when_flags_enable
 
     assert len(plans) == 1
     assert plans[0].real_send_blocked is False
+
+
+def test_build_birthday_plans_allows_whitelisted_real_contact_when_flags_enabled() -> None:
+    plans = build_birthday_plans(
+        [
+            {
+                "wechat_remark": "Normal Contact",
+                "birthday": "07-05",
+                "message": "生日快乐",
+                "enabled": "true",
+            }
+        ],
+        {
+            "dry_run": False,
+            "allow_real_send": True,
+            "allowed_real_contacts": ["Normal Contact"],
+        },
+        date(2026, 7, 5),
+    )
+
+    assert len(plans) == 1
+    assert plans[0].real_send_blocked is False
+    assert plans[0].block_reason == "real send allowed"
 
 
 def test_birthday_matches_rejects_invalid_dates() -> None:
