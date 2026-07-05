@@ -24,6 +24,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "send_delay_seconds": 1.0,
     "ui_action_interval_seconds": 0.2,
     "require_known_screen_state_for_real_send": True,
+    "vision_template_threshold": 0.85,
     "max_retry": 3,
 }
 
@@ -40,6 +41,7 @@ REQUIRED_TYPES: dict[str, type | tuple[type, ...]] = {
     "send_delay_seconds": (int, float),
     "ui_action_interval_seconds": (int, float),
     "require_known_screen_state_for_real_send": bool,
+    "vision_template_threshold": (int, float),
     "max_retry": int,
 }
 
@@ -73,6 +75,9 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
     validated["search_delay_seconds"] = float(validated["search_delay_seconds"])
     validated["send_delay_seconds"] = float(validated["send_delay_seconds"])
     validated["ui_action_interval_seconds"] = float(validated["ui_action_interval_seconds"])
+    validated["vision_template_threshold"] = float(validated["vision_template_threshold"])
+    if not 0.0 <= validated["vision_template_threshold"] <= 1.0:
+        raise ConfigError("Invalid config key 'vision_template_threshold': must be between 0 and 1")
     if validated["max_retry"] < 1:
         raise ConfigError("Invalid config key 'max_retry': must be >= 1")
     return validated

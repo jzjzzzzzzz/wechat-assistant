@@ -10,3 +10,4 @@ screenshots/*.jpeg
 logs/*.log
 !logs/app.log
 data/*.tmp
+debug/

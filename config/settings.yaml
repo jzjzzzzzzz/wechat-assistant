@@ -10,4 +10,5 @@ search_delay_seconds: 1.5
 send_delay_seconds: 1.0
 ui_action_interval_seconds: 0.2
 require_known_screen_state_for_real_send: true
+vision_template_threshold: 0.85
 max_retry: 3
