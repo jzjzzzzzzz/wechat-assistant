@@ -172,4 +172,14 @@ def run_dashboard(config: dict[str, Any]) -> None:
         row=1, column=1, padx=(8, 0), pady=(8, 0)
     )
 
+    def open_log_viewer() -> str:
+        from src.gui.log_viewer import run_log_viewer_window
+
+        root.after(0, lambda: run_log_viewer_window(config))
+        return "Log viewer opened"
+
+    ttk.Button(buttons, text="Log Viewer", command=lambda: run_async(open_log_viewer)).grid(
+        row=1, column=2, padx=(8, 0), pady=(8, 0)
+    )
+
     root.mainloop()
