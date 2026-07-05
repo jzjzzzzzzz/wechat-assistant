@@ -117,6 +117,10 @@ It must never read, import, decrypt, mirror, or inspect WeChat internal database
 
 The `plugins/` directory supports local manifest-only plugin discovery. The current skeleton validates `plugin.json` files but does not execute plugin code. Plugins cannot bypass `dry_run`, cannot call direct send actions, and cannot read WeChat databases.
 
+## Packaging
+
+Local macOS packaging is documented in `packaging/README.md`. Packaging must exclude runtime logs, screenshots, local SQLite databases, caches, and virtual environments. The packaged app keeps dry-run defaults and still requires macOS Accessibility and Screen Recording permissions.
+
 ## Testing Only 文件传输助手
 
 Keep this default in `config/settings.yaml`:

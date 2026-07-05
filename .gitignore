@@ -13,3 +13,7 @@ data/*.tmp
 data/*.sqlite3
 data/*.sqlite3-*
 debug/
+build/
+dist/
+*.spec
+!packaging/pyinstaller/*.spec
