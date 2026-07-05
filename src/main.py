@@ -24,6 +24,10 @@ def build_parser() -> argparse.ArgumentParser:
             "send-birthday",
             "gui",
             "manual-test",
+            "auto-reply-plan",
+            "auto-reply-daemon",
+            "notification-check",
+            "unread-scan",
         ],
         help="Command to run",
     )
@@ -47,6 +51,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Safe for use in cron/launchd — config file stays at dry_run: true."
         ),
     )
+    parser.add_argument("--dry-run", action="store_true", help="Force dry-run behavior for auto-reply commands.")
+    parser.add_argument("--once", action="store_true", help="Run one detection pass and exit.")
     return parser
 
 
@@ -57,6 +63,8 @@ def run_command(
     assume_yes: bool = False,
     contact: str | None = None,
     force_send: bool = False,
+    dry_run: bool = False,
+    once: bool = False,
 ) -> int:
     try:
         config = load_config()
@@ -70,6 +78,14 @@ def run_command(
         config = dict(config)
         config["dry_run"] = False
         config["allow_real_send"] = True
+
+    if dry_run:
+        config = dict(config)
+        config["dry_run"] = True
+        config["allow_real_send"] = False
+        auto_reply = dict(config.get("auto_reply", {}))
+        auto_reply["dry_run"] = True
+        config["auto_reply"] = auto_reply
 
     logger = setup_logger(log_file=config["log_file"])
     logger.info("Running command: %s", command)
@@ -138,6 +154,49 @@ def run_command(
             print(f"[{status}] {result.name}: {result.message}")
         return 0 if all(result.ok for result in results if result.name != "permissions") else 1
 
+    if command == "auto-reply-plan":
+        from src.auto_reply_daemon import print_auto_reply_plan
+
+        print_auto_reply_plan(config)
+        return 0
+
+    if command == "notification-check":
+        from src.notification_listener import notification_check_once
+
+        events = notification_check_once(config)
+        for event in events:
+            print(
+                f"[{event.status}] source={event.source} sender={event.sender} "
+                f"preview={event.message_preview} confidence={event.confidence:.2f}"
+            )
+        if not events:
+            print("No WeChat notification candidates detected.")
+        return 0
+
+    if command == "unread-scan":
+        from src.unread_scanner import unread_scan_once
+
+        events = unread_scan_once(config)
+        for event in events:
+            print(f"[{event.status}] source={event.source} sender={event.sender} confidence={event.confidence:.2f}")
+        if not events:
+            print("No unread private chat candidates detected.")
+        return 0
+
+    if command == "auto-reply-daemon":
+        from src.auto_reply_daemon import AutoReplyDaemon, print_planned_actions
+
+        if not dry_run:
+            print("auto-reply-daemon is dry-run only in this milestone. Re-run with --dry-run.")
+            return 2
+        daemon = AutoReplyDaemon(config)
+        if once:
+            events = daemon.run_once()
+            print_planned_actions(events, daemon.config)
+            return 0
+        daemon.run_forever()
+        return 0
+
     logger.error("Unknown command: %s", command)
     return 2
 
@@ -151,6 +210,8 @@ def main(argv: list[str] | None = None) -> int:
         assume_yes=args.yes,
         contact=args.contact,
         force_send=args.force_send,
+        dry_run=args.dry_run,
+        once=args.once,
     )
 
 

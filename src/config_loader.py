@@ -7,6 +7,8 @@ from typing import Any
 
 import yaml
 
+from src.auto_reply_policy import DEFAULT_AUTO_REPLY_CONFIG, validate_auto_reply_config
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "settings.yaml"
@@ -29,6 +31,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "require_known_screen_state_for_real_send": True,
     "vision_template_threshold": 0.85,
     "max_retry": 3,
+    "auto_reply": DEFAULT_AUTO_REPLY_CONFIG.copy(),
 }
 
 REQUIRED_TYPES: dict[str, type | tuple[type, ...]] = {
@@ -49,6 +52,7 @@ REQUIRED_TYPES: dict[str, type | tuple[type, ...]] = {
     "require_known_screen_state_for_real_send": bool,
     "vision_template_threshold": (int, float),
     "max_retry": int,
+    "auto_reply": dict,
 }
 
 
@@ -89,6 +93,10 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ConfigError("Invalid config key 'vision_template_threshold': must be between 0 and 1")
     if validated["max_retry"] < 1:
         raise ConfigError("Invalid config key 'max_retry': must be >= 1")
+    try:
+        validated["auto_reply"] = validate_auto_reply_config(validated)
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
     return validated
 
 

@@ -23,3 +23,26 @@ ui_action_interval_seconds: 0.2
 require_known_screen_state_for_real_send: true
 vision_template_threshold: 0.85
 max_retry: 3
+
+auto_reply:
+  enabled: false
+  dry_run: true
+  delay_minutes: 5
+  poll_interval_seconds: 5
+  cooldown_minutes: 60
+  private_only: true
+  reply_message: "号主不在线～ AI自动回复的"
+  detection_priority:
+    - "notification_ocr"
+    - "unread_chat_scan"
+  allowed_test_contacts:
+    - "文件传输助手"
+  blocklist_keywords:
+    - "群聊"
+    - "群"
+    - "服务通知"
+    - "订阅号"
+    - "公众号"
+    - "微信支付"
+    - "微信团队"
+  min_ocr_confidence: 0.65
