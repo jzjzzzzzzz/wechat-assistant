@@ -6,10 +6,15 @@ import logging
 import subprocess
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 
 LOGGER = logging.getLogger(__name__)
+
+# Sidebar width (logical pixels) — left contact-list panel in WeChat for Mac.
+_WECHAT_SIDEBAR_WIDTH = 240
+# Distance from window bottom to the centre of the chat input box (logical px).
+_INPUT_BOX_OFFSET_FROM_BOTTOM = 35
 
 
 @dataclass(frozen=True)
@@ -32,6 +37,77 @@ def _import_pyautogui():
         return pyautogui, None
     except Exception as exc:  # pragma: no cover - depends on local install
         return None, exc
+
+
+def get_wechat_window_rect() -> tuple[int, int, int, int] | None:
+    """Return (x, y, width, height) of the WeChat main window in logical pixels.
+
+    Returns None when the window cannot be found or AppleScript fails.
+    """
+    script = """
+tell application "System Events"
+    tell process "WeChat"
+        set wins to windows
+        repeat with w in wins
+            if name of w is "Weixin" then
+                set {wx, wy} to position of w
+                set {ww, wh} to size of w
+                return (wx as string) & "," & (wy as string) & "," & (ww as string) & "," & (wh as string)
+            end if
+        end repeat
+    end tell
+end tell
+"""
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        raw = result.stdout.strip()
+        if not raw:
+            LOGGER.warning("get_wechat_window_rect: AppleScript returned empty string")
+            return None
+        parts = [int(v) for v in raw.split(",")]
+        if len(parts) != 4:
+            LOGGER.warning("get_wechat_window_rect: unexpected output %r", raw)
+            return None
+        LOGGER.info("WeChat window rect (logical): x=%s y=%s w=%s h=%s", *parts)
+        return cast(tuple[int, int, int, int], tuple(parts))
+    except Exception as exc:
+        LOGGER.error("get_wechat_window_rect failed: %s", exc)
+        return None
+
+
+def click_chat_input_box(app_name: str = "WeChat", interval: float = 0.2) -> bool:
+    """Click the chat input box so keyboard focus lands there.
+
+    Calculates the input-box coordinates from the live WeChat window geometry
+    so the click is accurate even when the window has been moved or resized.
+    Falls back gracefully when pyautogui or window geometry is unavailable.
+    """
+    pyautogui, import_error = _import_pyautogui()
+    if import_error:
+        LOGGER.error("click_chat_input_box: pyautogui unavailable: %s", import_error)
+        return False
+
+    rect = get_wechat_window_rect()
+    if rect is None:
+        LOGGER.warning("click_chat_input_box: could not determine window rect; skipping click")
+        return False
+
+    wx, wy, ww, wh = rect
+    input_x = wx + _WECHAT_SIDEBAR_WIDTH + (ww - _WECHAT_SIDEBAR_WIDTH) // 2
+    input_y = wy + wh - _INPUT_BOX_OFFSET_FROM_BOTTOM
+    LOGGER.info("Clicking chat input box at logical (%s, %s)", input_x, input_y)
+    try:
+        pyautogui.click(input_x, input_y)
+        time.sleep(interval)
+        return True
+    except Exception as exc:
+        LOGGER.error("click_chat_input_box failed: %s", exc)
+        return False
 
 
 def is_wechat_running_result(app_name: str = "WeChat") -> UiActionResult:
@@ -199,6 +275,10 @@ def search_contact_result(
                 time.sleep(delay)
                 pyautogui.press("enter")
                 time.sleep(delay)
+                # After pressing Enter the contact chat opens, but keyboard focus
+                # may still be on the search bar rather than the chat input box.
+                # Explicitly click the input box so the next paste lands there.
+                click_chat_input_box(app_name, interval=interval)
                 message = f"Entered chat for contact search target: {contact_name}"
                 LOGGER.info(message)
                 return UiActionResult("search_contact", True, message, attempt=attempt)
