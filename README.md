@@ -88,7 +88,24 @@ dry_run: false
 allow_real_send: true
 ```
 
-The sender also refuses real sending to contacts other than `文件传输助手` by default.
+The sender also refuses real sending to contacts other than `文件传输助手`.
+
+For a real-send test, use only:
+
+```yaml
+test_contact: "文件传输助手"
+dry_run: false
+allow_real_send: true
+require_known_screen_state_for_real_send: true
+```
+
+Then run:
+
+```bash
+python -m src.main test-send
+```
+
+The command must print `REAL SEND ENABLED`, the target, and the message before pressing Enter. If the visible screen state cannot be confirmed, the send is blocked. Do not use this path for normal contacts.
 
 ## Local Project Database
 
