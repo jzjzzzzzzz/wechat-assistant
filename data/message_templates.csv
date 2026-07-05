@@ -1,0 +1,2 @@
+name,category,body,enabled
+birthday_default,birthday,"生日快乐，{name}",true
