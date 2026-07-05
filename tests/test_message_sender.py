@@ -160,6 +160,28 @@ def test_message_sender_captures_screenshot_on_real_search_failure() -> None:
     assert calls == ["screenshot", "screenshot"]
 
 
+def test_message_sender_does_not_delegate_retry_to_search() -> None:
+    search_retry_values: list[int] = []
+    config = {
+        "dry_run": False,
+        "allow_real_send": True,
+        "require_known_screen_state_for_real_send": False,
+        "max_retry": 5,
+        "send_delay_seconds": 0,
+    }
+
+    result = send_message(
+        config,
+        "文件传输助手",
+        "hello",
+        search_func=lambda target, cfg: search_retry_values.append(cfg["max_retry"]) or False,
+        screenshot_func=lambda cfg: "failure.png",
+    )
+
+    assert result is False
+    assert search_retry_values == [1, 1, 1, 1, 1]
+
+
 def test_message_sender_blocks_real_send_when_screen_state_unknown() -> None:
     calls: list[str] = []
     config = {

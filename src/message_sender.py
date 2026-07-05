@@ -16,6 +16,12 @@ LOGGER = logging.getLogger(__name__)
 SAFE_TEST_CONTACT = "文件传输助手"
 
 
+def _single_search_attempt_config(config: dict[str, Any]) -> dict[str, Any]:
+    search_config = dict(config)
+    search_config["max_retry"] = 1
+    return search_config
+
+
 def _allowed_real_contacts(config: dict[str, Any]) -> list[str]:
     """Return the list of contacts permitted for real sending.
 
@@ -145,7 +151,7 @@ def send_message(
     for attempt in range(1, max_retry + 1):
         LOGGER.info("Send attempt %s/%s for target=%s", attempt, max_retry, target)
         try:
-            search_result = search_func(target, config)
+            search_result = search_func(target, _single_search_attempt_config(config))
             if isinstance(search_result, UiActionResult):
                 if not search_result.ok:
                     raise RuntimeError(search_result.message)
@@ -179,6 +185,12 @@ def send_message(
                 metadata={"attempt": attempt, "error": str(exc), "screenshot_path": screenshot_path},
             )
             if attempt < max_retry:
+                LOGGER.warning(
+                    "Retrying send for target=%s after failed attempt %s/%s",
+                    target,
+                    attempt,
+                    max_retry,
+                )
                 time.sleep(float(config.get("send_delay_seconds", 1.0)))
 
     LOGGER.error("All send attempts failed for target=%s", target)
