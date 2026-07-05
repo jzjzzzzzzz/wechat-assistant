@@ -38,15 +38,38 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Contact name to force-send birthday message to (send-birthday only).",
     )
+    parser.add_argument(
+        "--force-send",
+        action="store_true",
+        help=(
+            "Temporarily enable real sending in memory for this run only. "
+            "Does NOT write to config/settings.yaml. "
+            "Safe for use in cron/launchd — config file stays at dry_run: true."
+        ),
+    )
     return parser
 
 
-def run_command(command: str, *, plan_only: bool = False, assume_yes: bool = False, contact: str | None = None) -> int:
+def run_command(
+    command: str,
+    *,
+    plan_only: bool = False,
+    assume_yes: bool = False,
+    contact: str | None = None,
+    force_send: bool = False,
+) -> int:
     try:
         config = load_config()
     except ConfigError as exc:
         setup_logger().error("Configuration error: %s", exc)
         return 2
+
+    # --force-send: override safety flags in memory only, never on disk.
+    # This lets launchd/cron call send-birthday without touching settings.yaml.
+    if force_send:
+        config = dict(config)
+        config["dry_run"] = False
+        config["allow_real_send"] = True
 
     logger = setup_logger(log_file=config["log_file"])
     logger.info("Running command: %s", command)
@@ -122,7 +145,13 @@ def run_command(command: str, *, plan_only: bool = False, assume_yes: bool = Fal
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    return run_command(args.command, plan_only=args.plan_only, assume_yes=args.yes, contact=args.contact)
+    return run_command(
+        args.command,
+        plan_only=args.plan_only,
+        assume_yes=args.yes,
+        contact=args.contact,
+        force_send=args.force_send,
+    )
 
 
 if __name__ == "__main__":
