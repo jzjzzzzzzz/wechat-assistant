@@ -16,13 +16,27 @@ LOGGER = logging.getLogger(__name__)
 SAFE_TEST_CONTACT = "文件传输助手"
 
 
+def _allowed_real_contacts(config: dict[str, Any]) -> list[str]:
+    """Return the list of contacts permitted for real sending.
+
+    Always includes SAFE_TEST_CONTACT.  Additional contacts are read from
+    config['allowed_real_contacts'] (a YAML list of display-name / remark strings).
+    """
+    base: list[str] = [SAFE_TEST_CONTACT]
+    extras = config.get("allowed_real_contacts", [])
+    if isinstance(extras, list):
+        base.extend(str(c).strip() for c in extras if str(c).strip())
+    return list(dict.fromkeys(base))  # deduplicate, preserve order
+
+
 def is_real_send_enabled(config: dict[str, Any], target: str) -> tuple[bool, str]:
     if config.get("dry_run", True):
         return False, "dry_run is true"
     if not config.get("allow_real_send", False):
         return False, "allow_real_send is false"
-    if target != SAFE_TEST_CONTACT:
-        return False, f"real sending is restricted to {SAFE_TEST_CONTACT}"
+    allowed = _allowed_real_contacts(config)
+    if target not in allowed:
+        return False, f"real sending is restricted to allowed contacts: {allowed}"
     return True, "real send enabled"
 
 

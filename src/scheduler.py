@@ -127,16 +127,22 @@ def build_birthday_plans(
         target = str(task.get("wechat_remark", "")).strip()
         message = str(task.get("message", "")).strip()
         dry_run_only = bool(config.get("dry_run", True))
+
+        # Check against the allowed-contacts whitelist (same logic as message_sender).
+        from src.message_sender import _allowed_real_contacts
+        allowed = _allowed_real_contacts(config)
+        in_whitelist = target in allowed
+
         real_send_blocked = True
-        if target != SAFE_TEST_CONTACT:
-            block_reason = f"real sending blocked for non-test target: {target}"
+        if not in_whitelist:
+            block_reason = f"real sending blocked: {target!r} not in allowed_real_contacts"
         elif dry_run_only:
             block_reason = "dry_run is true"
         elif not config.get("allow_real_send", False):
             block_reason = "allow_real_send is false"
         else:
             real_send_blocked = False
-            block_reason = "real send would be allowed by scheduler policy"
+            block_reason = "real send allowed"
 
         plan = BirthdayTaskPlan(
             wechat_remark=target,
@@ -179,3 +185,84 @@ def schedule_daily_birthday_check(config: dict[str, Any]) -> None:
     """Register future 00:00 daily birthday checks without starting a loop."""
     schedule.every().day.at("00:00").do(check_birthdays, config=config)
     LOGGER.info("Registered daily birthday check for 00:00.")
+
+
+def execute_birthday_plans(
+    config: dict[str, Any],
+    plans: list["BirthdayTaskPlan"],
+) -> list[dict[str, Any]]:
+    """Execute a list of birthday plans: send real messages or log dry-run.
+
+    Returns a list of result dicts with keys: target, message, sent, reason.
+    """
+    from src.message_sender import send_message
+
+    results: list[dict[str, Any]] = []
+    for plan in plans:
+        if plan.real_send_blocked:
+            LOGGER.info(
+                "Birthday send skipped (blocked). target=%s reason=%s",
+                plan.wechat_remark,
+                plan.block_reason,
+            )
+            print(f"[DRY RUN] {plan.wechat_remark}: {plan.message}  ({plan.block_reason})")
+            results.append({
+                "target": plan.wechat_remark,
+                "message": plan.message,
+                "sent": False,
+                "reason": plan.block_reason,
+            })
+        else:
+            LOGGER.info("Sending birthday message. target=%s", plan.wechat_remark)
+            ok = send_message(config, plan.wechat_remark, plan.message)
+            status = "SENT" if ok else "FAILED"
+            print(f"[{status}] {plan.wechat_remark}: {plan.message}")
+            results.append({
+                "target": plan.wechat_remark,
+                "message": plan.message,
+                "sent": ok,
+                "reason": "sent" if ok else "send_failed",
+            })
+    return results
+
+
+def run_birthday_send(
+    config: dict[str, Any],
+    *,
+    today: date | None = None,
+    force_contact: str | None = None,
+) -> list[dict[str, Any]]:
+    """Build plans for today (or force_contact) and execute them.
+
+    If force_contact is given, send to that contact regardless of today's date
+    (useful for on-demand birthday sends and testing).
+    """
+    tasks = load_birthday_tasks()
+
+    if force_contact:
+        # Find the task for this contact and execute it regardless of date.
+        matching = [t for t in tasks if str(t.get("wechat_remark", "")).strip() == force_contact]
+        if not matching:
+            LOGGER.warning("No birthday task found for contact: %s", force_contact)
+            print(f"No birthday task found for contact: {force_contact}")
+            return []
+        run_date = today or date.today()
+        # Temporarily pretend today is the birthday so build_birthday_plans accepts it.
+        from src.scheduler import parse_birthday_month_day
+        for task in matching:
+            md = parse_birthday_month_day(str(task.get("birthday", "")))
+            if md:
+                from datetime import date as _date
+                run_date = _date(run_date.year, md[0], md[1])
+                break
+        plans = build_birthday_plans(matching, config, run_date)
+    else:
+        run_date = today or date.today()
+        plans = build_birthday_plans(tasks, config, run_date)
+
+    if not plans:
+        print("No birthday plans to execute for today.")
+        return []
+
+    return execute_birthday_plans(config, plans)
+

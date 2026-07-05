@@ -2,6 +2,14 @@ dry_run: true
 allow_real_send: false
 test_contact: "文件传输助手"
 test_message: "WeChat Assistant test message"
+
+# Contacts allowed for real sending (in addition to 文件传输助手).
+# Add a contact's WeChat display name / remark here to enable real sends to them.
+# Real sending still requires dry_run: false AND allow_real_send: true.
+allowed_real_contacts:
+  - "文件传输助手"
+  - "爱"
+
 wechat_app_name: "WeChat"
 screenshot_dir: "screenshots"
 log_file: "logs/app.log"

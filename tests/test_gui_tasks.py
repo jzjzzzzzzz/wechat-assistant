@@ -48,4 +48,4 @@ def test_tasks_view_model_preview_is_dry_run_and_blocks_non_test_target(tmp_path
 
     assert len(plans) == 1
     assert plans[0]["real_send_blocked"] is True
-    assert "non-test target" in plans[0]["block_reason"]
+    assert "not in allowed_real_contacts" in plans[0]["block_reason"]

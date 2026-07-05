@@ -21,6 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
             "ocr",
             "scan-contacts",
             "birthday-check",
+            "send-birthday",
             "gui",
             "manual-test",
         ],
@@ -32,10 +33,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run confirmation-gated manual smoke-test UI actions. Does not enable real sending.",
     )
+    parser.add_argument(
+        "--contact",
+        default=None,
+        help="Contact name to force-send birthday message to (send-birthday only).",
+    )
     return parser
 
 
-def run_command(command: str, *, plan_only: bool = False, assume_yes: bool = False) -> int:
+def run_command(command: str, *, plan_only: bool = False, assume_yes: bool = False, contact: str | None = None) -> int:
     try:
         config = load_config()
     except ConfigError as exc:
@@ -83,6 +89,14 @@ def run_command(command: str, *, plan_only: bool = False, assume_yes: bool = Fal
         print(f"Matched {len(tasks)} birthday task(s).")
         return 0
 
+    if command == "send-birthday":
+        from src.scheduler import run_birthday_send
+
+        results = run_birthday_send(config, force_contact=contact)
+        sent = sum(1 for r in results if r.get("sent"))
+        print(f"Birthday send complete: {sent}/{len(results)} sent.")
+        return 0 if results else 1
+
     if command == "gui":
         from src.gui.dashboard import run_dashboard
 
@@ -108,7 +122,7 @@ def run_command(command: str, *, plan_only: bool = False, assume_yes: bool = Fal
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    return run_command(args.command, plan_only=args.plan_only, assume_yes=args.yes)
+    return run_command(args.command, plan_only=args.plan_only, assume_yes=args.yes, contact=args.contact)
 
 
 if __name__ == "__main__":

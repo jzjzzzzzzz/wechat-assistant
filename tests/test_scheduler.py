@@ -77,7 +77,7 @@ def test_build_birthday_plans_blocks_non_test_target_even_when_real_send_flags_e
 
     assert len(plans) == 1
     assert plans[0].real_send_blocked is True
-    assert "non-test target" in plans[0].block_reason
+    assert "not in allowed_real_contacts" in plans[0].block_reason
 
 
 def test_build_birthday_plans_allows_only_file_transfer_helper_when_flags_enabled() -> None:
