@@ -162,4 +162,14 @@ def run_dashboard(config: dict[str, Any]) -> None:
         row=1, column=0, pady=(8, 0)
     )
 
+    def open_tasks() -> str:
+        from src.gui.tasks import run_tasks_window
+
+        root.after(0, lambda: run_tasks_window(config))
+        return "Tasks opened"
+
+    ttk.Button(buttons, text="Tasks", command=lambda: run_async(open_tasks)).grid(
+        row=1, column=1, padx=(8, 0), pady=(8, 0)
+    )
+
     root.mainloop()
