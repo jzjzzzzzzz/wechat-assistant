@@ -5,6 +5,7 @@ test_message: "WeChat Assistant test message"
 wechat_app_name: "WeChat"
 screenshot_dir: "screenshots"
 log_file: "logs/app.log"
+database_path: "data/wechat_assistant.sqlite3"
 ocr_engine: "easyocr"
 ocr_confidence_threshold: 0.3
 search_delay_seconds: 1.5

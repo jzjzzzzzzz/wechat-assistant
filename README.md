@@ -89,6 +89,12 @@ allow_real_send: true
 
 The sender also refuses real sending to contacts other than `文件传输助手` by default.
 
+## Local Project Database
+
+The optional SQLite database at `data/wechat_assistant.sqlite3` is owned by WeChat Assistant. It stores only project data such as reviewed contacts, local tasks, message templates, and audit events.
+
+It must never read, import, decrypt, mirror, or inspect WeChat internal databases.
+
 ## Testing Only 文件传输助手
 
 Keep this default in `config/settings.yaml`:
