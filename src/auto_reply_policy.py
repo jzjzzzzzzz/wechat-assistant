@@ -77,13 +77,36 @@ class ChatSenderClassification:
     normalized_sender: str
     is_private: bool
     reason: str | None = None
+    category: str = "private"
     matched_whitelist: str | None = None
     matched_blocklist_keyword: str | None = None
     matched_non_private_keyword: str | None = None
 
 
 def normalize_chat_sender(sender: str) -> str:
-    return re.sub(r"\s+", " ", str(sender).replace("\u3000", " ")).strip()
+    cleaned = str(sender).replace("\u3000", " ")
+    cleaned = cleaned.replace("\u200b", "").replace("\ufeff", "")
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _text_contains_keyword(text: str, keyword: str) -> bool:
+    if not keyword:
+        return False
+    if keyword.isascii():
+        return keyword.casefold() in text.casefold()
+    return keyword in text
+
+
+def _looks_like_group_chat_name(sender: str) -> str | None:
+    if re.search(r"[\(（\[]\s*\d+\s*人?\s*[\)）\]]$", sender):
+        return "sender looks like group chat: member_count_suffix"
+    if re.search(r".+\s*[、，]\s*.+", sender):
+        return "sender looks like group chat: multi_participant_separator"
+    if re.search(r".+\s*/\s*.+", sender):
+        return "sender looks like group chat: multi_participant_separator"
+    if re.search(r".+\s+&\s+.+", sender):
+        return "sender looks like group chat: multi_participant_separator"
+    return None
 
 
 def auto_reply_config(config: dict[str, Any]) -> dict[str, Any]:
@@ -160,59 +183,69 @@ def validate_auto_reply_config(config: dict[str, Any]) -> dict[str, Any]:
 def classify_chat_sender(sender: str, ar_config: dict[str, Any]) -> ChatSenderClassification:
     normalized = normalize_chat_sender(sender)
     if not normalized or normalized.lower() == "unknown":
-        return ChatSenderClassification(sender, normalized, False, "unknown sender")
+        return ChatSenderClassification(sender, normalized, False, "unknown sender", category="unknown")
 
     for keyword in ar_config.get("blocklist_keywords", []):
         keyword_text = str(keyword).strip()
-        if keyword_text and keyword_text in normalized:
+        if keyword_text and _text_contains_keyword(normalized, keyword_text):
             return ChatSenderClassification(
                 sender,
                 normalized,
                 False,
                 f"sender matches blocklist keyword: {keyword_text}",
+                category="group_or_blocklisted",
                 matched_blocklist_keyword=keyword_text,
             )
 
     for keyword in ar_config.get("non_private_keywords", []):
         keyword_text = str(keyword).strip()
-        if keyword_text and keyword_text in normalized:
+        if keyword_text and _text_contains_keyword(normalized, keyword_text):
             return ChatSenderClassification(
                 sender,
                 normalized,
                 False,
                 f"sender matches non-private keyword: {keyword_text}",
+                category="non_private",
                 matched_non_private_keyword=keyword_text,
             )
 
-    if re.search(r"[\(（]\s*\d+\s*[\)）]$", normalized):
+    group_reason = _looks_like_group_chat_name(normalized)
+    if group_reason:
         return ChatSenderClassification(
             sender,
             normalized,
             False,
-            "sender looks like group chat: member_count_suffix",
+            group_reason,
+            category="group_candidate",
         )
 
     if bool(ar_config.get("require_private_chat_whitelist", True)):
-        whitelist = {
+        whitelist = [
             normalize_chat_sender(str(item))
             for item in ar_config.get("private_chat_whitelist", [])
             if normalize_chat_sender(str(item))
-        }
-        if normalized not in whitelist:
+        ]
+        matched_whitelist = next(
+            (item for item in whitelist if item.casefold() == normalized.casefold()),
+            None,
+        )
+        if matched_whitelist is None:
             return ChatSenderClassification(
                 sender,
                 normalized,
                 False,
                 "sender not in private chat whitelist",
+                category="not_whitelisted",
             )
         return ChatSenderClassification(
             sender,
             normalized,
             True,
-            matched_whitelist=normalized,
+            category="private",
+            matched_whitelist=matched_whitelist,
         )
 
-    return ChatSenderClassification(sender, normalized, True)
+    return ChatSenderClassification(sender, normalized, True, category="private")
 
 
 def should_ignore_by_name(sender: str, ar_config: dict[str, Any]) -> str | None:

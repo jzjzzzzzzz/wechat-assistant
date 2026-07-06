@@ -85,12 +85,16 @@ python -m src.main auto-reply-daemon --dry-run
 python -m src.main owner-status
 python -m src.main owner-status set online
 python -m src.main owner-status set offline
+python -m src.main private-whitelist list
+python -m src.main sender-classify 爱 "项目组(5)" "Official Accounts"
 python -m src.main auto-reply-monitor --dry-run --interval-seconds 60 --minutes 60
 ```
 
 `auto-reply-daemon --dry-run --once` runs one notification pass, one unread-list fallback pass, applies policy, prints planned actions, writes logs, and exits.
 
 `auto-reply-daemon --dry-run` polls until Ctrl+C and respects `poll_interval_seconds`.
+
+`sender-classify` is a safe local policy check. It does not scan WeChat, OCR screenshots, send messages, or control the UI.
 
 ## Explicit non-goals
 

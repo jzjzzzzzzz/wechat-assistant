@@ -128,7 +128,11 @@ python -m src.main unread-scan --once
 python -m src.main auto-reply-daemon --dry-run --once
 python -m src.main auto-reply-daemon --dry-run
 python -m src.main owner-status
+python -m src.main private-whitelist list
+python -m src.main sender-classify 爱 "项目组(5)" "Official Accounts"
 python -m src.main auto-reply-monitor --dry-run --interval-seconds 60 --minutes 60
 ```
 
 The one-pass daemon command loads config, runs notification detection, runs fallback unread scanning, applies policy, prints planned dry-run actions, writes logs, sends nothing, and exits cleanly.
+
+The sender classification commands are local policy checks only. They do not start OCR, scanning, WeChat UI actions, or message sending.

@@ -34,6 +34,8 @@ def build_parser() -> argparse.ArgumentParser:
             "auto-reply-state",
             "auto-reply-monitor",
             "monitor-report",
+            "private-whitelist",
+            "sender-classify",
         ],
         help="Command to run",
     )
@@ -204,6 +206,45 @@ def run_command(
         from src.auto_reply_daemon import print_auto_reply_plan
 
         print_auto_reply_plan(config)
+        return 0
+
+    if command == "private-whitelist":
+        from src.auto_reply_policy import auto_reply_config
+
+        ar = auto_reply_config(config)
+        if command_args and command_args != ["list"]:
+            print("Usage: private-whitelist [list]")
+            return 2
+        whitelist = list(ar.get("private_chat_whitelist", []))
+        print(f"require_private_chat_whitelist: {ar.get('require_private_chat_whitelist', True)}")
+        print(f"count: {len(whitelist)}")
+        if not whitelist:
+            print("No private chat whitelist entries configured.")
+            return 0
+        for sender in whitelist:
+            print(f"- {sender}")
+        return 0
+
+    if command == "sender-classify":
+        from src.auto_reply_policy import auto_reply_config, classify_chat_sender
+
+        if not command_args:
+            print("Usage: sender-classify <sender name> [sender name ...]")
+            return 2
+        ar = auto_reply_config(config)
+        for sender in command_args:
+            classification = classify_chat_sender(sender, ar)
+            print(f"sender: {classification.sender}")
+            print(f"normalized_sender: {classification.normalized_sender}")
+            print(f"is_private: {classification.is_private}")
+            print(f"category: {classification.category}")
+            print(f"reason: {classification.reason or 'none'}")
+            if classification.matched_whitelist:
+                print(f"matched_whitelist: {classification.matched_whitelist}")
+            if classification.matched_blocklist_keyword:
+                print(f"matched_blocklist_keyword: {classification.matched_blocklist_keyword}")
+            if classification.matched_non_private_keyword:
+                print(f"matched_non_private_keyword: {classification.matched_non_private_keyword}")
         return 0
 
     if command == "owner-status":

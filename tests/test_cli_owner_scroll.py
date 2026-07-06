@@ -35,7 +35,10 @@ def make_config(tmp_path):
             "reply_message": "号主不在线～ AI自动回复的",
             "detection_priority": ["notification_ocr", "unread_chat_scan"],
             "allowed_test_contacts": ["文件传输助手"],
+            "require_private_chat_whitelist": True,
+            "private_chat_whitelist": ["爱"],
             "blocklist_keywords": ["群", "服务通知", "公众号"],
+            "non_private_keywords": ["Official Accounts", "Service Accounts", "公众号"],
             "min_ocr_confidence": 0.65,
         },
     }
@@ -85,3 +88,50 @@ def test_status_menu_check_cli_exits_without_gui_loop(monkeypatch, tmp_path):
 
     assert result == 0
     assert calls == ["check"]
+
+
+def test_private_whitelist_cli_lists_configured_senders(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr("src.main.load_config", lambda: make_config(tmp_path))
+
+    result = run_command("private-whitelist", command_args=["list"])
+
+    output = capsys.readouterr().out
+    assert result == 0
+    assert "require_private_chat_whitelist: True" in output
+    assert "count: 1" in output
+    assert "- 爱" in output
+
+
+def test_sender_classify_cli_reports_private_sender(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr("src.main.load_config", lambda: make_config(tmp_path))
+
+    result = run_command("sender-classify", command_args=["爱"])
+
+    output = capsys.readouterr().out
+    assert result == 0
+    assert "sender: 爱" in output
+    assert "is_private: True" in output
+    assert "category: private" in output
+    assert "matched_whitelist: 爱" in output
+
+
+def test_sender_classify_cli_reports_group_candidate(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr("src.main.load_config", lambda: make_config(tmp_path))
+
+    result = run_command("sender-classify", command_args=["项目组(5)"])
+
+    output = capsys.readouterr().out
+    assert result == 0
+    assert "is_private: False" in output
+    assert "category: group_candidate" in output
+    assert "member_count_suffix" in output
+
+
+def test_sender_classify_cli_requires_sender_name(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr("src.main.load_config", lambda: make_config(tmp_path))
+
+    result = run_command("sender-classify")
+
+    output = capsys.readouterr().out
+    assert result == 2
+    assert "Usage: sender-classify" in output

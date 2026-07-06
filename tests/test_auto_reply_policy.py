@@ -105,6 +105,7 @@ def test_private_whitelist_allows_test_user_ai():
 
     assert classification.is_private is True
     assert classification.reason is None
+    assert classification.category == "private"
     assert classification.matched_whitelist == "爱"
 
 
@@ -115,6 +116,43 @@ def test_non_whitelisted_sender_is_not_treated_as_private():
 
     assert event.status == "ignored"
     assert event.reason == "sender not in private chat whitelist"
+
+
+def test_private_whitelist_matching_is_case_insensitive_for_english_names():
+    config = make_config(private_chat_whitelist=["Alice"])
+
+    classification = classify_chat_sender("alice", auto_reply_config(config))
+
+    assert classification.is_private is True
+    assert classification.matched_whitelist == "Alice"
+
+
+def test_non_private_keyword_matching_is_case_insensitive():
+    classification = classify_chat_sender("official accounts", auto_reply_config(make_config()))
+
+    assert classification.is_private is False
+    assert classification.category == "non_private"
+    assert classification.matched_non_private_keyword == "Official Accounts"
+
+
+def test_member_count_suffix_marks_sender_as_group_candidate():
+    config = make_config(private_chat_whitelist=["项目组(5)"])
+
+    classification = classify_chat_sender("项目组(5)", auto_reply_config(config))
+
+    assert classification.is_private is False
+    assert classification.category == "group_candidate"
+    assert classification.reason == "sender looks like group chat: member_count_suffix"
+
+
+def test_multi_participant_separator_marks_sender_as_group_candidate():
+    config = make_config(private_chat_whitelist=["Alice、Bob"])
+
+    classification = classify_chat_sender("Alice、Bob", auto_reply_config(config))
+
+    assert classification.is_private is False
+    assert classification.category == "group_candidate"
+    assert classification.reason == "sender looks like group chat: multi_participant_separator"
 
 
 def test_group_keyword_overrides_whitelist_for_safety():
