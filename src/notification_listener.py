@@ -12,6 +12,53 @@ from src.ocr_reader import read_image_text
 
 
 LOGGER = logging.getLogger(__name__)
+DEFAULT_MENU_BAR_NOISE_TEXTS = {
+    "OL",
+    "OFF",
+    "WA ONLINE",
+    "WA OFFLINE",
+    "TEST WA",
+    "IBAR",
+    "iBar",
+}
+DEFAULT_SKIP_MENU_BAR_PIXELS = 28
+DEFAULT_CAPTURE_WIDTH = 520
+DEFAULT_CAPTURE_HEIGHT = 360
+
+
+def _notification_ocr_config(config: dict[str, Any]) -> dict[str, Any]:
+    raw = config.get("notification_ocr", {})
+    if not isinstance(raw, dict):
+        raw = {}
+
+    noise_texts = set(DEFAULT_MENU_BAR_NOISE_TEXTS)
+    for item in raw.get("menu_bar_noise_texts", []):
+        text = str(item).strip()
+        if text:
+            noise_texts.add(text)
+
+    return {
+        "skip_menu_bar_pixels": int(raw.get("skip_menu_bar_pixels", DEFAULT_SKIP_MENU_BAR_PIXELS)),
+        "capture_width": int(raw.get("capture_width", DEFAULT_CAPTURE_WIDTH)),
+        "capture_height": int(raw.get("capture_height", DEFAULT_CAPTURE_HEIGHT)),
+        "menu_bar_noise_texts": noise_texts,
+    }
+
+
+def _notification_capture_region(
+    screen_width: int,
+    screen_height: int,
+    config: dict[str, Any],
+) -> tuple[int, int, int, int]:
+    options = _notification_ocr_config(config)
+    width = max(1, int(screen_width))
+    height = max(1, int(screen_height))
+    y_offset = max(0, int(options["skip_menu_bar_pixels"]))
+    y_offset = min(y_offset, max(0, height - 1))
+    region_width = min(max(1, int(options["capture_width"])), width)
+    region_height = min(max(1, int(options["capture_height"])), max(1, height - y_offset))
+    x = max(0, width - region_width)
+    return x, y_offset, region_width, region_height
 
 
 def _capture_notification_area(config: dict[str, Any]) -> str | None:
@@ -25,11 +72,10 @@ def _capture_notification_area(config: dict[str, Any]) -> str | None:
         import pyautogui  # type: ignore
 
         width, height = pyautogui.size()
-        region_width = min(520, int(width))
-        region_height = min(360, int(height))
-        image = pyautogui.screenshot(region=(int(width) - region_width, 0, region_width, region_height))
+        region = _notification_capture_region(int(width), int(height), config)
+        image = pyautogui.screenshot(region=region)
         image.save(output_path)
-        LOGGER.info("Captured notification area screenshot: %s", output_path)
+        LOGGER.info("Captured notification area screenshot: %s region=%s", output_path, region)
         return str(output_path)
     except Exception as exc:  # pragma: no cover - local macOS permission dependent
         LOGGER.error(
@@ -45,8 +91,12 @@ def _text_confidence(items: list[dict[str, Any]]) -> float:
     return max(float(item.get("confidence", 0.0)) for item in items)
 
 
-def _extract_sender_preview(texts: list[str]) -> tuple[str, str]:
-    cleaned = [text.strip() for text in texts if text.strip()]
+def _extract_sender_preview(texts: list[str], *, noise_texts: set[str] | None = None) -> tuple[str, str]:
+    cleaned = [
+        text.strip()
+        for text in texts
+        if text.strip() and not _is_menu_bar_noise(text, noise_texts=noise_texts)
+    ]
     if not cleaned:
         return "unknown", ""
 
@@ -69,6 +119,16 @@ def _extract_sender_preview(texts: list[str]) -> tuple[str, str]:
         sender = before.strip() or "unknown"
         preview = after.strip()
     return sender or "unknown", preview
+
+
+def _is_menu_bar_noise(text: str, *, noise_texts: set[str] | None = None) -> bool:
+    noise = noise_texts or DEFAULT_MENU_BAR_NOISE_TEXTS
+    normalized = " ".join(text.strip().split())
+    compact = normalized.lstrip("🟢🔴⚪🟡 ")
+    if normalized in noise or compact in noise:
+        return True
+    upper_noise = {item.upper() for item in noise}
+    return normalized.upper() in upper_noise or compact.upper() in upper_noise
 
 
 def detect_notification_events(
@@ -106,7 +166,10 @@ def detect_notification_events(
         LOGGER.info("Notification OCR ignored: confidence %.3f below minimum.", confidence)
         return []
 
-    sender, preview = _extract_sender_preview(texts)
+    sender, preview = _extract_sender_preview(
+        texts,
+        noise_texts=set(_notification_ocr_config(config)["menu_bar_noise_texts"]),
+    )
     reason = should_ignore_by_name(sender, ar)
     if reason:
         LOGGER.info("Notification OCR ignored: %s", reason)

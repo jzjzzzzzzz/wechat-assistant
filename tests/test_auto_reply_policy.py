@@ -145,6 +145,16 @@ def test_member_count_suffix_marks_sender_as_group_candidate():
     assert classification.reason == "sender looks like group chat: member_count_suffix"
 
 
+def test_full_width_member_count_suffix_marks_sender_as_group_candidate():
+    config = make_config(private_chat_whitelist=["项目组（5人）"])
+
+    classification = classify_chat_sender("项目组（5人）", auto_reply_config(config))
+
+    assert classification.is_private is False
+    assert classification.category == "group_candidate"
+    assert classification.reason == "sender looks like group chat: member_count_suffix"
+
+
 def test_multi_participant_separator_marks_sender_as_group_candidate():
     config = make_config(private_chat_whitelist=["Alice、Bob"])
 

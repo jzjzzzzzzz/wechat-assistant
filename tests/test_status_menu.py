@@ -13,11 +13,11 @@ def test_importing_status_menu_does_not_start_gui_loop():
 
 
 def test_online_title_is_visible_short_text():
-    assert status_menu.menu_title_for_status("online") == "🟢 WA ONLINE"
+    assert status_menu.menu_title_for_status("online") == "🟢 OL"
 
 
 def test_offline_title_is_visible_short_text():
-    assert status_menu.menu_title_for_status("offline") == "🔴 WA OFFLINE"
+    assert status_menu.menu_title_for_status("offline") == "🔴 OFF"
 
 
 def test_menu_actions_call_owner_status_service_functions(monkeypatch):
@@ -100,7 +100,7 @@ def test_status_menu_check_exits_without_gui_loop(monkeypatch, tmp_path, capsys)
     assert result == 0
     assert "rumps import: ok" in output
     assert "rumps version: 1.0-test" in output
-    assert "expected menu title: 🟢 WA ONLINE" in output
+    assert "expected menu title: 🟢 OL" in output
     assert "GUI loop would start: True" in output
 
 

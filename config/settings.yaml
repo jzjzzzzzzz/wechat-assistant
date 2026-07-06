@@ -69,6 +69,19 @@ owner:
   offline_reply_immediate: true
   status_menu_enabled: true
 
+notification_ocr:
+  skip_menu_bar_pixels: 28
+  capture_width: 520
+  capture_height: 360
+  menu_bar_noise_texts:
+    - "OL"
+    - "OFF"
+    - "WA ONLINE"
+    - "WA OFFLINE"
+    - "TEST WA"
+    - "IBAR"
+    - "iBar"
+
 unread_scan:
   enable_scroll_scan: false
   max_scroll_pages: 5

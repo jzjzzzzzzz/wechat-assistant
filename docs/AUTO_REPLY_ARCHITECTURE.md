@@ -61,6 +61,19 @@ auto_reply:
 owner:
   status_default: "online"
   offline_reply_immediate: true
+
+notification_ocr:
+  skip_menu_bar_pixels: 28
+  capture_width: 520
+  capture_height: 360
+  menu_bar_noise_texts:
+    - "OL"
+    - "OFF"
+    - "WA ONLINE"
+    - "WA OFFLINE"
+    - "TEST WA"
+    - "IBAR"
+    - "iBar"
 ```
 
 The daemon must force in-memory dry-run safety for this milestone even if a caller passes unsafe runtime values.
@@ -84,7 +97,7 @@ Detection paths must produce unified `AutoReplyEvent` values:
 
 `notification_ocr` is the primary strategy.
 
-It captures the likely macOS notification area, runs OCR, checks for a WeChat marker, extracts sender and preview best-effort, filters low-confidence and blocked candidates, and emits dry-run candidate events only. Missing Screen Recording permission must be logged clearly and return no events instead of crashing.
+It captures the likely macOS notification area, runs OCR, checks for a WeChat marker, extracts sender and preview best-effort, filters low-confidence and blocked candidates, and emits dry-run candidate events only. The capture defaults to starting below the macOS menu bar so iBar and status-menu labels do not become OCR input. Missing Screen Recording permission must be logged clearly and return no events instead of crashing.
 
 ## Fallback detection
 
@@ -105,6 +118,7 @@ The policy decides whether a candidate is ignored, pending, or ready for dry-run
 - `private_only` rejects non-private candidates.
 - `require_private_chat_whitelist` rejects senders outside `private_chat_whitelist`.
 - Group/system/public-account keywords are enforced before whitelist acceptance.
+- Sender names ending in member counts such as `项目组(5)` or `项目组（5人）` are treated as group candidates before whitelist acceptance.
 - Unknown senders are ignored.
 - Low OCR confidence is ignored.
 - Blocklist keywords are enforced.

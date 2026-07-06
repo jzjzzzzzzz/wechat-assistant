@@ -19,7 +19,7 @@ The planned reply text is:
 
 ## Detection
 
-Primary detection uses a screenshot of the likely macOS notification area and OCR. Candidates must look like WeChat notifications and meet `auto_reply.min_ocr_confidence`.
+Primary detection uses a screenshot of the likely macOS notification area and OCR. By default it skips the top menu-bar strip (`notification_ocr.skip_menu_bar_pixels`) so iBar/status-menu text such as `OL` or `OFF` is not treated as notification content. Candidates must look like WeChat notifications and meet `auto_reply.min_ocr_confidence`.
 
 Fallback detection activates the already logged-in WeChat Mac app only when the explicit command runs, screenshots the left chat list, runs OCR, and looks for unread indicators. This fallback never reads WeChat databases or decrypted files.
 
@@ -62,6 +62,7 @@ The policy ignores:
 - unknown senders
 - low-confidence OCR results
 - group chats and names matching configured blocklist keywords
+- sender names that look like group chats by member-count suffix, such as `项目组(5)` or `项目组（5人）`
 - senders outside the private chat whitelist
 - non-private candidates when `private_only` is true
 - repeat plans for the same sender inside `cooldown_minutes`
@@ -85,6 +86,8 @@ python -m src.main auto-reply-daemon --dry-run
 python -m src.main owner-status
 python -m src.main owner-status set online
 python -m src.main owner-status set offline
+python -m src.main status-menu --check
+python -m src.main status-menu
 python -m src.main private-whitelist list
 python -m src.main sender-classify 爱 "项目组(5)" "Official Accounts"
 python -m src.main auto-reply-monitor --dry-run --interval-seconds 60 --minutes 60
@@ -95,6 +98,11 @@ python -m src.main auto-reply-monitor --dry-run --interval-seconds 60 --minutes 
 `auto-reply-daemon --dry-run` polls until Ctrl+C and respects `poll_interval_seconds`.
 
 `sender-classify` is a safe local policy check. It does not scan WeChat, OCR screenshots, send messages, or control the UI.
+
+`status-menu` only reads/writes owner status. The visible macOS menu-bar title is intentionally short for iBar-managed menu bars:
+
+- online: `🟢 OL`
+- offline: `🔴 OFF`
 
 ## Explicit non-goals
 

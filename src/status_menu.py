@@ -14,7 +14,7 @@ from src.owner_status import get_owner_status, set_owner_status, toggle_owner_st
 
 
 def menu_title_for_status(status: str) -> str:
-    return "🟢 WA ONLINE" if status == "online" else "🔴 WA OFFLINE"
+    return "🟢 OL" if status == "online" else "🔴 OFF"
 
 
 def print_cli_fallback() -> None:
