@@ -3,10 +3,14 @@ from datetime import datetime
 from PIL import Image, ImageDraw
 
 from src.unread_scanner import (
+    ChatListRow,
     UnreadBadge,
     _associate_badges_with_ocr_rows,
+    associate_badges_with_rows,
     detect_unread_badges,
+    segment_chat_list_rows,
     scan_unread_events,
+    write_badge_debug_overlay,
 )
 from src.wechat_screenshot_verifier import ScreenshotVerification
 from src.window_capture import WindowCaptureResult
@@ -127,6 +131,67 @@ def test_associate_badges_with_nearest_ocr_chat_name_row():
     candidates = _associate_badges_with_ocr_rows(badges, ocr_items, image_height=700)
 
     assert candidates == [("Alice", 0.8, "red_unread_badge")]
+
+
+def test_segment_chat_list_rows_returns_row_slots_for_synthetic_wechat_image(tmp_path):
+    image_path = tmp_path / "wechat.png"
+    Image.new("RGB", (900, 700), "white").save(image_path)
+
+    rows = segment_chat_list_rows(image_path)
+
+    assert len(rows) >= 6
+    assert rows[0].x > 0
+    assert rows[0].width > 200
+
+
+def test_associate_badges_with_segmented_row_evidence():
+    rows = [
+        ChatListRow(0, 80, 80, 300, 80),
+        ChatListRow(1, 80, 160, 300, 80),
+    ]
+    badges = [UnreadBadge(305, 178, 26, 26, 0.8)]
+    ocr_items = [
+        {
+            "text": "Alice",
+            "confidence": 0.91,
+            "bbox": [[120, 92], [190, 92], [190, 125], [120, 125]],
+        },
+        {
+            "text": "Bob",
+            "confidence": 0.90,
+            "bbox": [[120, 172], [180, 172], [180, 205], [120, 205]],
+        },
+    ]
+
+    associations = associate_badges_with_rows(badges, rows, ocr_items)
+
+    assert len(associations) == 1
+    assert associations[0].sender == "Bob"
+    assert "row=1" in associations[0].evidence
+
+
+def test_write_badge_debug_overlay_saves_row_level_evidence_image(tmp_path):
+    image_path = tmp_path / "wechat.png"
+    Image.new("RGB", (900, 700), "white").save(image_path)
+    row = ChatListRow(0, 80, 80, 300, 80)
+    badge = UnreadBadge(305, 98, 26, 26, 0.8)
+    association = associate_badges_with_rows(
+        [badge],
+        [row],
+        [
+            {
+                "text": "Alice",
+                "confidence": 0.91,
+                "bbox": [[120, 92], [190, 92], [190, 125], [120, 125]],
+            }
+        ],
+    )[0]
+
+    overlay_path = write_badge_debug_overlay(image_path, [row], [badge], [association])
+
+    assert overlay_path is not None
+    assert overlay_path.endswith("_badge_overlay.png")
+    assert (tmp_path / "wechat_badge_overlay.png").exists()
 
 
 def test_associate_badges_preserves_numeric_badge_count_from_ocr():

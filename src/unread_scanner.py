@@ -44,6 +44,32 @@ class UnreadBadge:
         return (self.x + self.width // 2, self.y + self.height // 2)
 
 
+@dataclass(frozen=True)
+class ChatListRow:
+    index: int
+    x: int
+    y: int
+    width: int
+    height: int
+
+    @property
+    def center_y(self) -> int:
+        return self.y + self.height // 2
+
+    def contains_point(self, x: int, y: int) -> bool:
+        return self.x <= x <= self.x + self.width and self.y <= y <= self.y + self.height
+
+
+@dataclass(frozen=True)
+class BadgeRowAssociation:
+    row: ChatListRow
+    badge: UnreadBadge
+    sender: str
+    confidence: float
+    marker: str
+    evidence: str
+
+
 def _is_wechat_frontmost(app_name: str = "WeChat") -> bool:
     script = 'tell application "System Events" to get name of first process whose frontmost is true'
     try:
@@ -243,6 +269,42 @@ def detect_unread_badges(image_path: str | Path) -> list[UnreadBadge]:
     return badges
 
 
+def segment_chat_list_rows(image_path: str | Path) -> list[ChatListRow]:
+    """Return conservative row slots for the visible WeChat chat/contact list.
+
+    This is geometry-first: it does not require OCR text boxes to decide which
+    row a red badge belongs to. The fixed-row estimate matches WeChat's visible
+    list structure well enough for row-level evidence, while OCR remains only
+    for naming the row.
+    """
+    try:
+        from PIL import Image  # type: ignore
+
+        with Image.open(image_path) as image:
+            width, height = image.size
+    except Exception as exc:
+        LOGGER.warning("Chat-list row segmentation skipped; image unavailable: %s", exc)
+        return []
+
+    if width < 300 or height < 300:
+        return []
+
+    x = int(width * 0.07)
+    panel_right = int(width * 0.43)
+    row_width = max(1, panel_right - x)
+    y_start = int(height * 0.11)
+    row_height = max(54, min(120, int(height * 0.085)))
+    rows: list[ChatListRow] = []
+    index = 0
+    y = y_start
+    while y + row_height <= height - int(height * 0.02):
+        rows.append(ChatListRow(index=index, x=x, y=y, width=row_width, height=row_height))
+        index += 1
+        y += row_height
+    LOGGER.info("Segmented %s chat-list row slot(s).", len(rows))
+    return rows
+
+
 def _associate_badges_with_ocr_rows(
     badges: list[UnreadBadge],
     ocr_items: list[dict[str, Any]],
@@ -297,6 +359,70 @@ def _associate_badges_with_ocr_rows(
     return associated
 
 
+def _text_items_in_row(row: ChatListRow, ocr_items: list[dict[str, Any]]) -> list[tuple[str, float, float]]:
+    items: list[tuple[str, float, float]] = []
+    for item in ocr_items:
+        text = str(item.get("text", "")).strip()
+        if not _is_possible_chat_name(text):
+            continue
+        center = _bbox_center(item.get("bbox"))
+        if center is None:
+            continue
+        cx, cy = center
+        if row.contains_point(int(cx), int(cy)):
+            items.append((text, float(item.get("confidence", 0.0)), cx))
+    items.sort(key=lambda value: value[2])
+    return items
+
+
+def associate_badges_with_rows(
+    badges: list[UnreadBadge],
+    rows: list[ChatListRow],
+    ocr_items: list[dict[str, Any]],
+) -> list[BadgeRowAssociation]:
+    associations: list[BadgeRowAssociation] = []
+    used_rows: set[int] = set()
+    for badge in badges:
+        badge_x, badge_y = badge.center
+        containing_rows = [row for row in rows if row.contains_point(badge_x, badge_y)]
+        if containing_rows:
+            row = min(containing_rows, key=lambda candidate: abs(candidate.center_y - badge_y))
+        elif rows:
+            row = min(rows, key=lambda candidate: abs(candidate.center_y - badge_y))
+            if abs(row.center_y - badge_y) > row.height * 0.65:
+                continue
+        else:
+            continue
+
+        if row.index in used_rows:
+            continue
+        row_text_items = _text_items_in_row(row, ocr_items)
+        if not row_text_items:
+            continue
+
+        # Prefer the left-most plausible row text; it is normally the chat name.
+        sender, sender_confidence, _sender_x = row_text_items[0]
+        count = badge.count if badge.count is not None else _badge_count_from_ocr(badge, ocr_items)
+        marker = f"red_unread_badge:{count}" if count is not None else "red_unread_badge"
+        confidence = min(sender_confidence, badge.confidence)
+        used_rows.add(row.index)
+        associations.append(
+            BadgeRowAssociation(
+                row=row,
+                badge=badge,
+                sender=sender,
+                confidence=confidence,
+                marker=marker,
+                evidence=(
+                    f"row={row.index} row_bounds=({row.x},{row.y},{row.width},{row.height}) "
+                    f"badge_bounds=({badge.x},{badge.y},{badge.width},{badge.height})"
+                ),
+            )
+        )
+    LOGGER.info("Associated %s unread badge(s) with chat-list row evidence.", len(associations))
+    return associations
+
+
 def _badge_count_from_ocr(badge: UnreadBadge, ocr_items: list[dict[str, Any]]) -> int | None:
     badge_x1 = badge.x - badge.width * 0.4
     badge_y1 = badge.y - badge.height * 0.4
@@ -324,6 +450,56 @@ def _image_height(image_path: str | Path) -> int | None:
         with Image.open(image_path) as image:
             return int(image.height)
     except Exception:
+        return None
+
+
+def write_badge_debug_overlay(
+    image_path: str | Path,
+    rows: list[ChatListRow],
+    badges: list[UnreadBadge],
+    associations: list[BadgeRowAssociation],
+) -> str | None:
+    try:
+        from PIL import Image, ImageDraw  # type: ignore
+    except Exception as exc:  # pragma: no cover - pillow runtime dependency
+        LOGGER.warning("Badge debug overlay skipped; Pillow unavailable: %s", exc)
+        return None
+
+    path = Path(image_path)
+    output_path = path.with_name(f"{path.stem}_badge_overlay.png")
+    try:
+        with Image.open(path).convert("RGB") as image:
+            draw = ImageDraw.Draw(image)
+            for row in rows:
+                draw.rectangle(
+                    (row.x, row.y, row.x + row.width, row.y + row.height),
+                    outline=(50, 150, 255),
+                    width=2,
+                )
+                draw.text((row.x + 4, row.y + 4), f"row {row.index}", fill=(50, 150, 255))
+            for badge in badges:
+                draw.rectangle(
+                    (badge.x, badge.y, badge.x + badge.width, badge.y + badge.height),
+                    outline=(255, 0, 0),
+                    width=3,
+                )
+            for association in associations:
+                badge_x, badge_y = association.badge.center
+                draw.line(
+                    (association.row.x, association.row.center_y, badge_x, badge_y),
+                    fill=(0, 180, 80),
+                    width=3,
+                )
+                draw.text(
+                    (association.row.x + 8, association.row.y + association.row.height - 18),
+                    association.sender,
+                    fill=(0, 140, 70),
+                )
+            image.save(output_path)
+        LOGGER.info("Unread badge debug overlay saved: %s", output_path)
+        return str(output_path)
+    except Exception as exc:
+        LOGGER.warning("Badge debug overlay failed safely: %s", exc)
         return None
 
 
@@ -429,14 +605,17 @@ def _events_from_ocr_items(
     *,
     now_func: Callable[[], datetime] = datetime.now,
     source_confidence_multiplier: float = 1.0,
-    badge_candidates: list[tuple[str, float, str]] | None = None,
+    badge_candidates: list[tuple[str, float, str, str | None]] | None = None,
 ) -> list[AutoReplyEvent]:
     ar = auto_reply_config(config)
     now = now_func()
     events: list[AutoReplyEvent] = []
-    candidate_rows = [*_candidate_names(ocr_items), *(badge_candidates or [])]
+    candidate_rows = [
+        *[(sender, confidence, marker, None) for sender, confidence, marker in _candidate_names(ocr_items)],
+        *(badge_candidates or []),
+    ]
     seen: set[str] = set()
-    for sender, confidence, unread_marker in candidate_rows:
+    for sender, confidence, unread_marker, evidence in candidate_rows:
         if sender in seen:
             continue
         seen.add(sender)
@@ -461,6 +640,8 @@ def _events_from_ocr_items(
                 is_private_candidate=True,
             )
         )
+        if evidence:
+            LOGGER.info("Unread candidate row evidence sender=%s %s", sender, evidence)
     return events
 
 
@@ -544,11 +725,31 @@ def scan_unread_events(
             except Exception as exc:
                 LOGGER.warning("Unread badge detection failed safely: %s", exc)
                 badges = []
-            badge_candidates = _associate_badges_with_ocr_rows(
+            rows = segment_chat_list_rows(result.capture.image_path)
+            row_associations = associate_badges_with_rows(badges, rows, ocr_items)
+            overlay_path = write_badge_debug_overlay(
+                result.capture.image_path,
+                rows,
+                badges,
+                row_associations,
+            )
+            if overlay_path:
+                LOGGER.info("Unread scan row-level debug overlay: %s", overlay_path)
+            row_badge_candidates: list[tuple[str, float, str, str | None]] = [
+                (association.sender, association.confidence, association.marker, association.evidence)
+                for association in row_associations
+            ]
+            fallback_badge_candidates = _associate_badges_with_ocr_rows(
                 badges,
                 ocr_items,
                 image_height=_image_height(result.capture.image_path),
             )
+            fallback_badge_candidates_with_evidence = [
+                (sender, confidence, marker, "fallback=ocr_bbox_nearest_row")
+                for sender, confidence, marker in fallback_badge_candidates
+                if sender not in {candidate[0] for candidate in row_badge_candidates}
+            ]
+            badge_candidates = [*row_badge_candidates, *fallback_badge_candidates_with_evidence]
             events = _events_from_ocr_items(
                 config,
                 ocr_items,
