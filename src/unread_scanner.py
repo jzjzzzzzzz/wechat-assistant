@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
@@ -18,6 +19,20 @@ from src.window_locator import WeChatWindow, WindowLocatorResult, find_wechat_wi
 
 
 LOGGER = logging.getLogger(__name__)
+NON_PRIVATE_SENDER_KEYWORDS = (
+    "Official Accounts",
+    "Service Accounts",
+    "Weixin Games",
+    "WeChat Pay",
+    "WeChat Team",
+    "Subscriptions",
+    "Subscription",
+    "公众号",
+    "订阅号",
+    "服务通知",
+    "微信支付",
+    "微信团队",
+)
 
 
 @dataclass(frozen=True)
@@ -68,6 +83,58 @@ class BadgeRowAssociation:
     confidence: float
     marker: str
     evidence: str
+
+
+@dataclass(frozen=True)
+class IgnoredBadgeCandidate:
+    badge: UnreadBadge
+    row: ChatListRow | None
+    reason: str
+    evidence: str
+
+
+@dataclass(frozen=True)
+class RejectedRedContour:
+    x: int
+    y: int
+    width: int
+    height: int
+    area: int
+    reason: str
+
+
+@dataclass(frozen=True)
+class BadgeDetectionDiagnostics:
+    badges: list[UnreadBadge]
+    rejected_contours: list[RejectedRedContour]
+    contour_count: int
+    chat_list_crop_path: str | None = None
+    red_mask_path: str | None = None
+    contour_overlay_path: str | None = None
+
+
+@dataclass(frozen=True)
+class UnreadScanReport:
+    screenshot_path: str | None
+    chat_list_crop_path: str | None
+    red_mask_path: str | None
+    contour_overlay_path: str | None
+    row_overlay_path: str | None
+    contour_count: int
+    accepted_badge_count: int
+    rejected_contour_count: int
+    row_count: int
+    association_count: int
+    final_candidate_count: int
+    ignored_reasons: list[str]
+    badge_candidates: list[str]
+
+
+_LAST_UNREAD_SCAN_REPORT: UnreadScanReport | None = None
+
+
+def get_last_unread_scan_report() -> UnreadScanReport | None:
+    return _LAST_UNREAD_SCAN_REPORT
 
 
 def _is_wechat_frontmost(app_name: str = "WeChat") -> bool:
@@ -180,6 +247,8 @@ def _is_possible_chat_name(text: str) -> bool:
     stripped = text.strip()
     if not stripped or stripped.isdigit() or _looks_unread(stripped):
         return False
+    if re.fullmatch(r"(Today|Yesterday|\d{1,2}:\d{2}|[A-Za-z]+day\s+\d{1,2}:\d{2}).*", stripped):
+        return False
     ui_labels = {
         "微信",
         "WeChat",
@@ -199,74 +268,205 @@ def _is_possible_chat_name(text: str) -> bool:
     return stripped not in ui_labels
 
 
-def detect_unread_badges(image_path: str | Path) -> list[UnreadBadge]:
-    """Detect red unread dots/numeric badges in the WeChat chat-list area.
+def _non_private_sender_reason(sender: str) -> str | None:
+    for keyword in NON_PRIVATE_SENDER_KEYWORDS:
+        if keyword and keyword in sender:
+            return f"non_private_sender_keyword:{keyword}"
+    return None
 
-    This runs only after screenshot verification has accepted the image as
-    WeChat. The geometric filters are intentionally conservative to avoid red
-    avatar/artwork false positives.
-    """
+
+def _debug_image_path(image_path: str | Path, suffix: str) -> Path:
+    path = Path(image_path)
+    return path.with_name(f"{path.stem}_{suffix}.png")
+
+
+def _chat_list_bounds(width: int, height: int) -> tuple[int, int, int, int]:
+    left = max(70, int(width * 0.04))
+    right = min(int(width * 0.36), int(width * 0.43))
+    top = int(height * 0.04)
+    bottom = height
+    return left, top, max(left + 1, right), bottom
+
+
+def detect_unread_badges_with_diagnostics(image_path: str | Path) -> BadgeDetectionDiagnostics:
+    """Detect red unread dots/numeric badges and return debug evidence."""
     try:
         import cv2  # type: ignore
         import numpy as np  # type: ignore
     except Exception as exc:  # pragma: no cover - optional runtime dependency
         LOGGER.warning("Unread badge detection skipped; OpenCV unavailable: %s", exc)
-        return []
+        return BadgeDetectionDiagnostics([], [], 0)
 
     image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
     if image is None:
         LOGGER.warning("Unread badge detection skipped; could not load image: %s", image_path)
-        return []
+        return BadgeDetectionDiagnostics([], [], 0)
 
     height, width = image.shape[:2]
     if width < 300 or height < 300:
-        return []
+        return BadgeDetectionDiagnostics([], [], 0)
+
+    chat_left, chat_top, chat_right, chat_bottom = _chat_list_bounds(width, height)
+    chat_crop_path = _debug_image_path(image_path, "chat_list_crop")
+    try:
+        cv2.imwrite(str(chat_crop_path), image[chat_top:chat_bottom, chat_left:chat_right])
+    except Exception as exc:
+        LOGGER.warning("Could not write chat-list crop debug image: %s", exc)
+        chat_crop_path = None  # type: ignore[assignment]
 
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
     red_low = cv2.inRange(hsv, np.array([0, 70, 80]), np.array([12, 255, 255]))
     red_high = cv2.inRange(hsv, np.array([168, 70, 80]), np.array([180, 255, 255]))
     mask = cv2.bitwise_or(red_low, red_high)
 
-    # Ignore nav icons/avatar-heavy left edge and the main content pane.
-    left_limit = int(width * 0.43)
-    badge_x_min = int(width * 0.12)
-    badge_x_max = left_limit
-    mask[:, :badge_x_min] = 0
-    mask[:, badge_x_max:] = 0
-    mask[: int(height * 0.05), :] = 0
-
+    # Ignore the left app sidebar and the main content pane. The real unread
+    # numeric badge observed at x~=199 in a 1760px-wide screenshot must pass,
+    # while the sidebar badge at x~=67 must be rejected.
+    badge_x_min = chat_left
+    badge_x_max = chat_right
     kernel = np.ones((3, 3), np.uint8)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
+    red_mask_path = _debug_image_path(image_path, "red_mask")
+    try:
+        cv2.imwrite(str(red_mask_path), mask)
+    except Exception as exc:
+        LOGGER.warning("Could not write red mask debug image: %s", exc)
+        red_mask_path = None  # type: ignore[assignment]
+
     count, labels, stats, _centroids = cv2.connectedComponentsWithStats(mask, connectivity=8)
     badges: list[UnreadBadge] = []
+    rejected: list[RejectedRedContour] = []
     min_side = max(5, int(min(width, height) * 0.006))
     max_side = max(18, int(min(width, height) * 0.055))
     for label in range(1, count):
         x, y, component_width, component_height, area = [int(value) for value in stats[label]]
+        reason: str | None = None
         if component_width < min_side or component_height < min_side:
-            continue
-        if component_width > max_side or component_height > max_side:
-            continue
-        if area < max(18, min_side * min_side // 2):
-            continue
+            reason = "too_small"
+        elif component_width > max_side or component_height > max_side:
+            reason = "too_large"
+        elif area < max(18, min_side * min_side // 2):
+            reason = "area_too_small"
         aspect = component_width / float(component_height or 1)
-        if not 0.55 <= aspect <= 1.85:
-            continue
+        if reason is None and not 0.45 <= aspect <= 2.20:
+            reason = "bad_aspect_ratio"
         fill_ratio = area / float(component_width * component_height)
-        if fill_ratio < 0.35:
-            continue
+        if reason is None and fill_ratio < 0.22:
+            reason = "fill_ratio_too_low"
         cx = x + component_width // 2
-        # WeChat unread badges sit toward the right side of the chat-list row.
-        if cx < int(width * 0.20):
-            continue
-        confidence = min(1.0, 0.55 + fill_ratio * 0.35)
-        badges.append(UnreadBadge(x, y, component_width, component_height, confidence))
+        cy = y + component_height // 2
+        if reason is None and cy < int(height * 0.05):
+            reason = "top_window_chrome_region"
+        if reason is None and x < badge_x_min:
+            reason = "left_sidebar_or_avatar_region"
+        if reason is None and cx > badge_x_max:
+            reason = "outside_chat_list_region"
+        if reason is None:
+            confidence = min(1.0, 0.55 + fill_ratio * 0.35)
+            badges.append(
+                UnreadBadge(
+                    x,
+                    y,
+                    component_width,
+                    component_height,
+                    confidence,
+                    count=_infer_numeric_badge_count(image, x, y, component_width, component_height),
+                )
+            )
+        else:
+            rejected.append(RejectedRedContour(x, y, component_width, component_height, area, reason))
 
     badges.sort(key=lambda badge: (badge.y, badge.x))
+    contour_overlay_path = _debug_image_path(image_path, "contour_overlay")
+    try:
+        overlay = image.copy()
+        for badge in badges:
+            cv2.rectangle(
+                overlay,
+                (badge.x, badge.y),
+                (badge.x + badge.width, badge.y + badge.height),
+                (0, 255, 0),
+                3,
+            )
+        for item in rejected:
+            cv2.rectangle(
+                overlay,
+                (item.x, item.y),
+                (item.x + item.width, item.y + item.height),
+                (0, 0, 255),
+                2,
+            )
+        cv2.rectangle(overlay, (chat_left, chat_top), (chat_right, chat_bottom), (255, 0, 0), 2)
+        cv2.imwrite(str(contour_overlay_path), overlay)
+    except Exception as exc:
+        LOGGER.warning("Could not write contour overlay debug image: %s", exc)
+        contour_overlay_path = None  # type: ignore[assignment]
+
     LOGGER.info("Detected %s red unread badge candidate(s).", len(badges))
-    return badges
+    for badge in badges:
+        LOGGER.info(
+            "Accepted red badge x=%s y=%s w=%s h=%s confidence=%.3f count=%s",
+            badge.x,
+            badge.y,
+            badge.width,
+            badge.height,
+            badge.confidence,
+            badge.count,
+        )
+    for item in rejected:
+        LOGGER.info(
+            "Rejected red contour x=%s y=%s w=%s h=%s area=%s reason=%s",
+            item.x,
+            item.y,
+            item.width,
+            item.height,
+            item.area,
+            item.reason,
+        )
+    return BadgeDetectionDiagnostics(
+        badges=badges,
+        rejected_contours=rejected,
+        contour_count=max(0, count - 1),
+        chat_list_crop_path=str(chat_crop_path) if chat_crop_path else None,
+        red_mask_path=str(red_mask_path) if red_mask_path else None,
+        contour_overlay_path=str(contour_overlay_path) if contour_overlay_path else None,
+    )
+
+
+def detect_unread_badges(image_path: str | Path) -> list[UnreadBadge]:
+    """Detect red unread dots/numeric badges in the WeChat chat-list area."""
+    return detect_unread_badges_with_diagnostics(image_path).badges
+
+
+def _infer_numeric_badge_count(image: Any, x: int, y: int, width: int, height: int) -> int | None:
+    """Infer a single-digit numeric badge when OCR misses white text.
+
+    This intentionally only returns 1. Other counts should come from OCR near
+    the badge. Empty red dots usually have no white pixels in the badge crop.
+    """
+    if width < 18 or height < 18:
+        return None
+    try:
+        import cv2  # type: ignore
+        import numpy as np  # type: ignore
+
+        crop = image[y : y + height, x : x + width]
+        if crop.size == 0:
+            return None
+        white_mask = cv2.inRange(crop, np.array([210, 210, 210]), np.array([255, 255, 255]))
+        white_pixels = int(cv2.countNonZero(white_mask))
+        if white_pixels < max(8, int(width * height * 0.018)):
+            return None
+        count, _labels, stats, _centroids = cv2.connectedComponentsWithStats(white_mask, connectivity=8)
+        for label in range(1, count):
+            _cx, _cy, component_width, component_height, area = [int(value) for value in stats[label]]
+            if area >= 6 and component_height >= height * 0.25 and component_width <= width * 0.45:
+                return 1
+    except Exception:
+        return None
+    return None
 
 
 def segment_chat_list_rows(image_path: str | Path) -> list[ChatListRow]:
@@ -289,7 +489,7 @@ def segment_chat_list_rows(image_path: str | Path) -> list[ChatListRow]:
     if width < 300 or height < 300:
         return []
 
-    x = int(width * 0.07)
+    x = int(width * 0.01)
     panel_right = int(width * 0.43)
     row_width = max(1, panel_right - x)
     y_start = int(height * 0.11)
@@ -375,12 +575,13 @@ def _text_items_in_row(row: ChatListRow, ocr_items: list[dict[str, Any]]) -> lis
     return items
 
 
-def associate_badges_with_rows(
+def associate_badges_with_rows_diagnostics(
     badges: list[UnreadBadge],
     rows: list[ChatListRow],
     ocr_items: list[dict[str, Any]],
-) -> list[BadgeRowAssociation]:
+) -> tuple[list[BadgeRowAssociation], list[IgnoredBadgeCandidate]]:
     associations: list[BadgeRowAssociation] = []
+    ignored: list[IgnoredBadgeCandidate] = []
     used_rows: set[int] = set()
     for badge in badges:
         badge_x, badge_y = badge.center
@@ -390,14 +591,52 @@ def associate_badges_with_rows(
         elif rows:
             row = min(rows, key=lambda candidate: abs(candidate.center_y - badge_y))
             if abs(row.center_y - badge_y) > row.height * 0.65:
+                ignored.append(
+                    IgnoredBadgeCandidate(
+                        badge=badge,
+                        row=row,
+                        reason="badge_not_close_to_any_row",
+                        evidence=(
+                            f"nearest_row={row.index} row_bounds=({row.x},{row.y},{row.width},{row.height}) "
+                            f"badge_bounds=({badge.x},{badge.y},{badge.width},{badge.height})"
+                        ),
+                    )
+                )
                 continue
         else:
+            ignored.append(
+                IgnoredBadgeCandidate(
+                    badge=badge,
+                    row=None,
+                    reason="no_chat_rows_segmented",
+                    evidence=f"badge_bounds=({badge.x},{badge.y},{badge.width},{badge.height})",
+                )
+            )
             continue
 
         if row.index in used_rows:
+            ignored.append(
+                IgnoredBadgeCandidate(
+                    badge=badge,
+                    row=row,
+                    reason="row_already_used",
+                    evidence=f"row={row.index} badge_bounds=({badge.x},{badge.y},{badge.width},{badge.height})",
+                )
+            )
             continue
         row_text_items = _text_items_in_row(row, ocr_items)
         if not row_text_items:
+            ignored.append(
+                IgnoredBadgeCandidate(
+                    badge=badge,
+                    row=row,
+                    reason="sender_ocr_failed",
+                    evidence=(
+                        f"row={row.index} row_bounds=({row.x},{row.y},{row.width},{row.height}) "
+                        f"badge_bounds=({badge.x},{badge.y},{badge.width},{badge.height})"
+                    ),
+                )
+            )
             continue
 
         # Prefer the left-most plausible row text; it is normally the chat name.
@@ -420,6 +659,17 @@ def associate_badges_with_rows(
             )
         )
     LOGGER.info("Associated %s unread badge(s) with chat-list row evidence.", len(associations))
+    for item in ignored:
+        LOGGER.info("Ignored badge candidate reason=%s %s", item.reason, item.evidence)
+    return associations, ignored
+
+
+def associate_badges_with_rows(
+    badges: list[UnreadBadge],
+    rows: list[ChatListRow],
+    ocr_items: list[dict[str, Any]],
+) -> list[BadgeRowAssociation]:
+    associations, _ignored = associate_badges_with_rows_diagnostics(badges, rows, ocr_items)
     return associations
 
 
@@ -606,6 +856,7 @@ def _events_from_ocr_items(
     now_func: Callable[[], datetime] = datetime.now,
     source_confidence_multiplier: float = 1.0,
     badge_candidates: list[tuple[str, float, str, str | None]] | None = None,
+    ignored_reasons_out: list[str] | None = None,
 ) -> list[AutoReplyEvent]:
     ar = auto_reply_config(config)
     now = now_func()
@@ -620,12 +871,17 @@ def _events_from_ocr_items(
             continue
         seen.add(sender)
         reason = should_ignore_by_name(sender, ar)
+        reason = reason or _non_private_sender_reason(sender)
         if reason:
             LOGGER.info("Unread scan ignored %r: %s", sender, reason)
+            if ignored_reasons_out is not None:
+                ignored_reasons_out.append(f"ignored_sender:{sender}:{reason}")
             continue
         confidence = min(1.0, confidence * source_confidence_multiplier)
         if confidence < float(ar.get("min_ocr_confidence", 0.65)):
             LOGGER.info("Unread scan ignored %r: confidence %.3f below minimum.", sender, confidence)
+            if ignored_reasons_out is not None:
+                ignored_reasons_out.append(f"ignored_sender:{sender}:low_confidence")
             continue
         events.append(
             AutoReplyEvent(
@@ -698,6 +954,8 @@ def scan_unread_events(
     badge_detector_func: Callable[[str | Path], list[UnreadBadge]] = detect_unread_badges,
     now_func: Callable[[], datetime] = datetime.now,
 ) -> list[AutoReplyEvent]:
+    global _LAST_UNREAD_SCAN_REPORT
+    _LAST_UNREAD_SCAN_REPORT = None
     bg = _background_config(config)
     events: list[AutoReplyEvent] = []
     if bg.get("enabled", True) and bg.get("prefer_background_capture", True):
@@ -721,12 +979,18 @@ def scan_unread_events(
                 return []
             verification_confidence = result.verification.confidence if result.verification else 0.8
             try:
-                badges = badge_detector_func(result.capture.image_path)
+                if badge_detector_func is detect_unread_badges:
+                    badge_diagnostics = detect_unread_badges_with_diagnostics(result.capture.image_path)
+                    badges = badge_diagnostics.badges
+                else:
+                    badges = badge_detector_func(result.capture.image_path)
+                    badge_diagnostics = BadgeDetectionDiagnostics(badges, [], len(badges))
             except Exception as exc:
                 LOGGER.warning("Unread badge detection failed safely: %s", exc)
                 badges = []
+                badge_diagnostics = BadgeDetectionDiagnostics([], [], 0)
             rows = segment_chat_list_rows(result.capture.image_path)
-            row_associations = associate_badges_with_rows(badges, rows, ocr_items)
+            row_associations, ignored_badges = associate_badges_with_rows_diagnostics(badges, rows, ocr_items)
             overlay_path = write_badge_debug_overlay(
                 result.capture.image_path,
                 rows,
@@ -750,12 +1014,40 @@ def scan_unread_events(
                 if sender not in {candidate[0] for candidate in row_badge_candidates}
             ]
             badge_candidates = [*row_badge_candidates, *fallback_badge_candidates_with_evidence]
+            event_ignored_reasons: list[str] = []
             events = _events_from_ocr_items(
                 config,
                 ocr_items,
                 now_func=now_func,
                 source_confidence_multiplier=max(0.5, verification_confidence),
                 badge_candidates=badge_candidates,
+                ignored_reasons_out=event_ignored_reasons,
+            )
+            ignored_reasons = [
+                *(f"rejected_contour:{item.reason}" for item in badge_diagnostics.rejected_contours),
+                *(f"ignored_badge:{item.reason}" for item in ignored_badges),
+                *event_ignored_reasons,
+            ]
+            _LAST_UNREAD_SCAN_REPORT = UnreadScanReport(
+                screenshot_path=result.capture.image_path,
+                chat_list_crop_path=badge_diagnostics.chat_list_crop_path,
+                red_mask_path=badge_diagnostics.red_mask_path,
+                contour_overlay_path=badge_diagnostics.contour_overlay_path,
+                row_overlay_path=overlay_path,
+                contour_count=badge_diagnostics.contour_count,
+                accepted_badge_count=len(badges),
+                rejected_contour_count=len(badge_diagnostics.rejected_contours),
+                row_count=len(rows),
+                association_count=len(row_associations),
+                final_candidate_count=len(events),
+                ignored_reasons=ignored_reasons,
+                badge_candidates=[
+                    (
+                        f"x={badge.x} y={badge.y} w={badge.width} h={badge.height} "
+                        f"confidence={badge.confidence:.3f} count={badge.count}"
+                    )
+                    for badge in badges
+                ],
             )
             LOGGER.info("Background unread scan produced %s auto-reply candidate(s).", len(events))
             return events

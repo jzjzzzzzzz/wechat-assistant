@@ -175,11 +175,31 @@ def run_command(
         return 0
 
     if command == "unread-scan":
-        from src.unread_scanner import unread_scan_once
+        from src.unread_scanner import get_last_unread_scan_report, unread_scan_once
 
         events = unread_scan_once(config)
+        report = get_last_unread_scan_report()
+        if report:
+            print(f"screenshot_path: {report.screenshot_path}")
+            print(f"chat_list_crop_path: {report.chat_list_crop_path}")
+            print(f"red_mask_path: {report.red_mask_path}")
+            print(f"contour_overlay_path: {report.contour_overlay_path}")
+            print(f"row_overlay_path: {report.row_overlay_path}")
+            print(f"contour_count: {report.contour_count}")
+            print(f"accepted_red_badge_count: {report.accepted_badge_count}")
+            print(f"rejected_red_contour_count: {report.rejected_contour_count}")
+            print(f"row_count: {report.row_count}")
+            print(f"association_count: {report.association_count}")
+            print(f"final_auto_reply_candidate_count: {report.final_candidate_count}")
+            for candidate in report.badge_candidates:
+                print(f"badge_candidate: {candidate}")
+            for reason in report.ignored_reasons:
+                print(f"ignored_reason: {reason}")
         for event in events:
-            print(f"[{event.status}] source={event.source} sender={event.sender} confidence={event.confidence:.2f}")
+            print(
+                f"[{event.status}] source={event.source} sender={event.sender} "
+                f"preview={event.message_preview} confidence={event.confidence:.2f}"
+            )
         if not events:
             print("No unread private chat candidates detected.")
         return 0

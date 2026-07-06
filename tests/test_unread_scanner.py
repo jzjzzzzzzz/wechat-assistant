@@ -8,6 +8,8 @@ from src.unread_scanner import (
     _associate_badges_with_ocr_rows,
     associate_badges_with_rows,
     detect_unread_badges,
+    detect_unread_badges_with_diagnostics,
+    get_last_unread_scan_report,
     segment_chat_list_rows,
     scan_unread_events,
     write_badge_debug_overlay,
@@ -111,6 +113,47 @@ def test_detect_unread_badges_finds_synthetic_red_badge(tmp_path):
 
     assert len(badges) == 1
     assert badges[0].confidence >= 0.65
+
+
+def test_real_coordinate_chat_list_badge_is_accepted_and_sidebar_badge_rejected(tmp_path):
+    image_path = tmp_path / "wechat_full.png"
+    image = Image.new("RGB", (1760, 1280), "white")
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((0, 0, 110, 1280), fill=(238, 238, 238))
+    draw.rectangle((120, 0, 570, 1280), fill=(246, 246, 246))
+    draw.ellipse((67, 313, 99, 345), fill=(235, 75, 67))
+    draw.ellipse((199, 203, 231, 235), fill=(235, 75, 67))
+    draw.line((215, 210, 215, 228), fill="white", width=4)
+    image.save(image_path)
+
+    diagnostics = detect_unread_badges_with_diagnostics(image_path)
+
+    assert len(diagnostics.badges) == 1
+    badge = diagnostics.badges[0]
+    assert 190 <= badge.x <= 205
+    assert 198 <= badge.y <= 208
+    assert badge.count == 1
+    assert any(item.reason == "left_sidebar_or_avatar_region" for item in diagnostics.rejected_contours)
+    assert diagnostics.chat_list_crop_path is not None
+    assert diagnostics.red_mask_path is not None
+    assert diagnostics.contour_overlay_path is not None
+
+
+def test_window_capture_coordinate_chat_badge_is_accepted_but_nearby_sidebar_badge_rejected(tmp_path):
+    image_path = tmp_path / "wechat_window.png"
+    image = Image.new("RGB", (1640, 1280), "white")
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((0, 0, 110, 1280), fill=(238, 238, 238))
+    draw.rectangle((0, 140, 470, 248), fill=(226, 226, 226))
+    draw.ellipse((67, 313, 99, 345), fill=(235, 75, 67))
+    draw.ellipse((77, 203, 109, 235), fill=(235, 75, 67))
+    draw.line((93, 210, 93, 228), fill="white", width=4)
+    image.save(image_path)
+
+    diagnostics = detect_unread_badges_with_diagnostics(image_path)
+
+    assert any(70 <= badge.x <= 82 and 198 <= badge.y <= 208 for badge in diagnostics.badges)
+    assert any(item.x == 67 and item.reason == "left_sidebar_or_avatar_region" for item in diagnostics.rejected_contours)
 
 
 def test_associate_badges_with_nearest_ocr_chat_name_row():
@@ -235,6 +278,29 @@ def test_background_unread_scanner_detects_badge_candidate_without_unread_text()
     assert events[0].message_preview == "red_unread_badge"
 
 
+def test_badge_with_row_but_unknown_sender_is_diagnostic_only(tmp_path):
+    image_path = tmp_path / "wechat.png"
+    Image.new("RGB", (1760, 1280), "white").save(image_path)
+
+    events = scan_unread_events(
+        make_config(),
+        locator_func=lambda **kwargs: make_locator_result(),
+        window_capture_func=lambda window, config: WindowCaptureResult(True, str(image_path), "visible_region", "ok"),
+        verifier_factory=lambda **kwargs: FakeVerifier(ok=True),
+        ocr_func=lambda path, **kwargs: [],
+        badge_detector_func=lambda path: [UnreadBadge(199, 203, 32, 32, 0.82, count=1)],
+        now_func=lambda: BASE_TIME,
+    )
+
+    report = get_last_unread_scan_report()
+
+    assert events == []
+    assert report is not None
+    assert report.accepted_badge_count == 1
+    assert report.association_count == 0
+    assert any(reason == "ignored_badge:sender_ocr_failed" for reason in report.ignored_reasons)
+
+
 def test_unread_scanner_skips_ocr_if_verification_fails():
     calls = []
 
@@ -283,6 +349,26 @@ def test_unread_scanner_filters_blocklisted_badge_candidate():
     )
 
     assert events == []
+
+
+def test_unread_scanner_filters_english_public_account_badge_candidate():
+    items = [
+        {"text": "Official Accounts", "confidence": 0.92, "bbox": [[120, 112], [290, 112], [290, 145], [120, 145]]},
+    ]
+
+    events = scan_unread_events(
+        make_config(),
+        locator_func=lambda **kwargs: make_locator_result(),
+        window_capture_func=lambda window, config: WindowCaptureResult(True, "wechat.png", "visible_region", "ok"),
+        verifier_factory=lambda **kwargs: FakeVerifier(ok=True),
+        ocr_func=lambda path, **kwargs: items,
+        badge_detector_func=lambda path: [UnreadBadge(305, 118, 26, 26, 0.82)],
+    )
+    report = get_last_unread_scan_report()
+
+    assert events == []
+    assert report is not None
+    assert any("non_private_sender_keyword:Official Accounts" in reason for reason in report.ignored_reasons)
 
 
 def test_unread_scanner_skips_when_window_not_found():
