@@ -22,6 +22,15 @@ class WindowCaptureResult:
     method: str
     message: str
     error: str | None = None
+    bounds: tuple[int, int, int, int] | None = None
+
+    @property
+    def success(self) -> bool:
+        return self.ok
+
+    @property
+    def capture_method(self) -> str:
+        return self.method
 
 
 def _debug_dir(config: dict[str, Any]) -> Path:
@@ -70,7 +79,13 @@ def capture_window_by_id(window: WeChatWindow, config: dict[str, Any]) -> Window
         data = Quartz.CGDataProviderCopyData(provider)
         image = Image.frombuffer("RGBA", (width, height), bytes(data), "raw", "BGRA", 0, 1)
         image.save(output_path)
-        return WindowCaptureResult(True, str(output_path), "window_id", "Captured WeChat window by id.")
+        return WindowCaptureResult(
+            True,
+            str(output_path),
+            "window_id",
+            "Captured WeChat window by id.",
+            bounds=(window.bounds.x, window.bounds.y, window.bounds.width, window.bounds.height),
+        )
     except Exception as exc:  # pragma: no cover - macOS permission/API dependent
         LOGGER.warning("Window-id capture failed safely: %s", exc)
         return WindowCaptureResult(
@@ -79,6 +94,7 @@ def capture_window_by_id(window: WeChatWindow, config: dict[str, Any]) -> Window
             "window_id",
             "Window-id capture failed. Screen Recording permission may be required.",
             error=str(exc),
+            bounds=(window.bounds.x, window.bounds.y, window.bounds.width, window.bounds.height),
         )
 
 
@@ -90,7 +106,13 @@ def capture_visible_region(
     size_func: Callable[[], tuple[int, int]] | None = None,
 ) -> WindowCaptureResult:
     if not window.can_attempt_background_capture:
-        return WindowCaptureResult(False, None, "visible_region", "Window is hidden, minimized, or implausible.")
+        return WindowCaptureResult(
+            False,
+            None,
+            "visible_region",
+            "Window is hidden, minimized, or implausible.",
+            bounds=(window.bounds.x, window.bounds.y, window.bounds.width, window.bounds.height),
+        )
 
     output_path = _output_path(config, prefix="wechat_visible_region")
     try:
@@ -110,9 +132,21 @@ def capture_visible_region(
         right = min(full_image.width, int((bounds.x + bounds.width) * scale_x))
         bottom = min(full_image.height, int((bounds.y + bounds.height) * scale_y))
         if right <= left or bottom <= top:
-            return WindowCaptureResult(False, None, "visible_region", "Window bounds are outside the display.")
+            return WindowCaptureResult(
+                False,
+                None,
+                "visible_region",
+                "Window bounds are outside the display.",
+                bounds=(bounds.x, bounds.y, bounds.width, bounds.height),
+            )
         full_image.crop((left, top, right, bottom)).save(output_path)
-        return WindowCaptureResult(True, str(output_path), "visible_region", "Captured visible WeChat region.")
+        return WindowCaptureResult(
+            True,
+            str(output_path),
+            "visible_region",
+            "Captured visible WeChat region.",
+            bounds=(bounds.x, bounds.y, bounds.width, bounds.height),
+        )
     except Exception as exc:  # pragma: no cover - permission/local display dependent
         LOGGER.warning("Visible-region capture failed safely: %s", exc)
         return WindowCaptureResult(
@@ -121,12 +155,19 @@ def capture_visible_region(
             "visible_region",
             "Visible-region capture failed. Screen Recording permission may be required.",
             error=str(exc),
+            bounds=(window.bounds.x, window.bounds.y, window.bounds.width, window.bounds.height),
         )
 
 
 def capture_wechat_window(window: WeChatWindow, config: dict[str, Any]) -> WindowCaptureResult:
     if not window.can_attempt_background_capture:
-        return WindowCaptureResult(False, None, "none", "Window is hidden, minimized, or not visible.")
+        return WindowCaptureResult(
+            False,
+            None,
+            "none",
+            "Window is hidden, minimized, or not visible.",
+            bounds=(window.bounds.x, window.bounds.y, window.bounds.width, window.bounds.height),
+        )
 
     by_id = capture_window_by_id(window, config)
     if by_id.ok:

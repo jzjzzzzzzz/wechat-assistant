@@ -7,6 +7,9 @@ __pycache__/
 screenshots/*.png
 screenshots/*.jpg
 screenshots/*.jpeg
+screenshots/**/*.png
+screenshots/**/*.jpg
+screenshots/**/*.jpeg
 logs/*.log
 data/*.tmp
 data/*.sqlite3

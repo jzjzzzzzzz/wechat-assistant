@@ -28,6 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
             "auto-reply-daemon",
             "notification-check",
             "unread-scan",
+            "background-scan",
         ],
         help="Command to run",
     )
@@ -181,6 +182,39 @@ def run_command(
             print(f"[{event.status}] source={event.source} sender={event.sender} confidence={event.confidence:.2f}")
         if not events:
             print("No unread private chat candidates detected.")
+        return 0
+
+    if command == "background-scan":
+        from src.unread_scanner import run_background_scan_once
+
+        result = run_background_scan_once(config)
+        print(f"ok: {result.ok}")
+        print(f"message: {result.message}")
+        if result.error:
+            print(f"error: {result.error}")
+        if result.window:
+            print(f"window_id: {result.window.window_id}")
+            print(f"owner_name: {result.window.owner_name}")
+            print(f"window_title: {result.window.window_title}")
+            print(
+                "bounds: "
+                f"{result.window.bounds.x},{result.window.bounds.y},"
+                f"{result.window.bounds.width},{result.window.bounds.height}"
+            )
+            print(f"is_visible: {result.window.is_visible}")
+            print(f"is_minimized_or_hidden: {result.window.is_minimized_or_hidden}")
+        if result.capture:
+            print(f"capture_success: {result.capture.success}")
+            print(f"capture_method: {result.capture.capture_method}")
+            print(f"image_path: {result.capture.image_path}")
+            if result.capture.bounds:
+                print(f"capture_bounds: {result.capture.bounds}")
+            if result.capture.error:
+                print(f"capture_error: {result.capture.error}")
+        if result.verification:
+            print(f"is_wechat: {result.verification.is_wechat}")
+            print(f"verification_confidence: {result.verification.confidence:.2f}")
+            print(f"verification_reasons: {', '.join(result.verification.reasons)}")
         return 0
 
     if command == "auto-reply-daemon":

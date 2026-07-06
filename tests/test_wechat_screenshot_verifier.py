@@ -69,6 +69,25 @@ def test_minimized_or_hidden_windows_are_skipped_by_locator() -> None:
     assert result.windows[0].can_attempt_background_capture is False
 
 
+def test_locator_returns_structured_failure_when_no_wechat_window_found() -> None:
+    result = find_wechat_windows(
+        quartz_records_func=lambda: [
+            {
+                "kCGWindowOwnerName": "Terminal",
+                "kCGWindowName": "shell",
+                "kCGWindowNumber": 7,
+                "kCGWindowBounds": {"X": 0, "Y": 0, "Width": 900, "Height": 700},
+                "kCGWindowIsOnscreen": True,
+            }
+        ],
+        applescript_records_func=lambda app_name: [],
+    )
+
+    assert result.ok is False
+    assert result.windows == []
+    assert result.message == "No visible WeChat window found."
+
+
 def test_locator_returns_visible_background_window_without_activation() -> None:
     result = find_wechat_windows(
         quartz_records_func=lambda: [
@@ -86,6 +105,32 @@ def test_locator_returns_visible_background_window_without_activation() -> None:
     assert result.ok is True
     assert result.windows[0].window_id == 42
     assert result.windows[0].can_attempt_background_capture is True
+
+
+def test_locator_prefers_main_wechat_window_over_edit_contact_popup() -> None:
+    result = find_wechat_windows(
+        quartz_records_func=lambda: [
+            {
+                "kCGWindowOwnerName": "WeChat",
+                "kCGWindowName": "Edit Contact",
+                "kCGWindowNumber": 7,
+                "kCGWindowBounds": {"X": 100, "Y": 100, "Width": 408, "Height": 654},
+                "kCGWindowIsOnscreen": True,
+            },
+            {
+                "kCGWindowOwnerName": "WeChat",
+                "kCGWindowName": "Weixin",
+                "kCGWindowNumber": 42,
+                "kCGWindowBounds": {"X": 10, "Y": 20, "Width": 900, "Height": 700},
+                "kCGWindowIsOnscreen": True,
+            },
+        ],
+        applescript_records_func=lambda app_name: [],
+    )
+
+    assert result.ok is True
+    assert result.windows[0].window_id == 42
+    assert result.windows[0].is_probable_main_window is True
 
 
 def test_window_model_skips_implausibly_small_windows() -> None:

@@ -36,6 +36,14 @@ class WeChatWindow:
     def can_attempt_background_capture(self) -> bool:
         return self.is_visible and self.is_minimized_or_hidden is not True and self.bounds.is_plausible
 
+    @property
+    def is_probable_main_window(self) -> bool:
+        title = self.window_title.casefold()
+        blocked_titles = ("edit contact", "profile", "settings", "preferences")
+        if any(blocked in title for blocked in blocked_titles):
+            return False
+        return self.bounds.width >= 650 and self.bounds.height >= 500
+
 
 @dataclass(frozen=True)
 class WindowLocatorResult:
@@ -175,10 +183,18 @@ def find_wechat_windows(
             LOGGER.warning("AppleScript WeChat window lookup unavailable: %s", exc)
 
     windows = [window for record in records if (window := _normalize_window_record(record)) is not None]
-    capturable = [window for window in windows if window.can_attempt_background_capture]
+    capturable = [window for window in windows if window.can_attempt_background_capture and window.is_probable_main_window]
+    capturable = sorted(
+        capturable,
+        key=lambda window: (
+            "weixin" in window.window_title.casefold(),
+            window.bounds.width * window.bounds.height,
+        ),
+        reverse=True,
+    )
     if capturable:
         return WindowLocatorResult(True, capturable, f"Found {len(capturable)} visible WeChat window(s).")
     if windows:
-        return WindowLocatorResult(False, windows, "WeChat windows found but none are visible/capturable.")
+        return WindowLocatorResult(False, windows, "WeChat windows found but no visible main chat window is capturable.")
     error = "; ".join(errors) if errors else None
     return WindowLocatorResult(False, [], "No visible WeChat window found.", error=error)
