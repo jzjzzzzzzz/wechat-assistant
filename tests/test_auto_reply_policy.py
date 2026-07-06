@@ -1,6 +1,11 @@
 from datetime import datetime, timedelta
 
-from src.auto_reply_policy import AutoReplyEvent, AutoReplyPolicy, auto_reply_config
+from src.auto_reply_policy import (
+    AutoReplyEvent,
+    AutoReplyPolicy,
+    auto_reply_config,
+    classify_chat_sender,
+)
 from src.config_loader import load_config
 
 
@@ -10,7 +15,7 @@ BASE_TIME = datetime(2026, 7, 5, 12, 0, 0)
 def make_event(**overrides):
     values = {
         "source": "notification_ocr",
-        "sender": "Alice",
+        "sender": "爱",
         "message_preview": "hello",
         "detected_at": BASE_TIME,
         "first_seen_at": BASE_TIME,
@@ -95,6 +100,33 @@ def test_blocklist_filtering_ignores_group_and_system_names():
     assert "blocklist" in (event.reason or "")
 
 
+def test_private_whitelist_allows_test_user_ai():
+    classification = classify_chat_sender("爱", auto_reply_config(make_config()))
+
+    assert classification.is_private is True
+    assert classification.reason is None
+    assert classification.matched_whitelist == "爱"
+
+
+def test_non_whitelisted_sender_is_not_treated_as_private():
+    policy = AutoReplyPolicy(make_config(delay_minutes=0))
+
+    event = policy.evaluate(make_event(sender="Alice"), now=BASE_TIME)
+
+    assert event.status == "ignored"
+    assert event.reason == "sender not in private chat whitelist"
+
+
+def test_group_keyword_overrides_whitelist_for_safety():
+    config = make_config(private_chat_whitelist=["同学群"])
+    policy = AutoReplyPolicy(config)
+
+    event = policy.evaluate(make_event(sender="同学群"), now=BASE_TIME)
+
+    assert event.status == "ignored"
+    assert "blocklist" in (event.reason or "")
+
+
 def test_private_only_filtering_ignores_non_private_candidate():
     policy = AutoReplyPolicy(make_config(delay_minutes=0, private_only=True))
 
@@ -132,5 +164,7 @@ def test_config_defaults_include_safe_auto_reply_values():
     assert ar["cooldown_minutes"] == 60.0
     assert ar["state_stale_minutes"] == 1440.0
     assert ar["private_only"] is True
+    assert ar["require_private_chat_whitelist"] is True
+    assert "爱" in ar["private_chat_whitelist"]
     assert ar["reply_message"] == "号主不在线～ AI自动回复的"
     assert config["allow_real_send"] is False

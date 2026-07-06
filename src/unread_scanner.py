@@ -1059,6 +1059,12 @@ def _events_from_ocr_items(
             if ignored_reasons_out is not None:
                 if "blocklist keyword" in reason:
                     ignored_reasons_out.append(f"ignored_sender:{sender}:blocklisted_sender")
+                elif "non-private keyword" in reason or reason.startswith("non_private_sender_keyword:"):
+                    ignored_reasons_out.append(f"ignored_sender:{sender}:non_private_sender")
+                elif "private chat whitelist" in reason:
+                    ignored_reasons_out.append(f"ignored_sender:{sender}:not_in_private_whitelist")
+                elif "group chat" in reason:
+                    ignored_reasons_out.append(f"ignored_sender:{sender}:group_chat_candidate")
                 elif reason == "unknown sender":
                     ignored_reasons_out.append(f"ignored_sender:{sender}:unknown_sender")
                 ignored_reasons_out.append(f"ignored_sender:{sender}:{reason}")

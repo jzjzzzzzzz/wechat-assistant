@@ -38,12 +38,28 @@ auto_reply:
     - "unread_chat_scan"
   allowed_test_contacts:
     - "文件传输助手"
+  require_private_chat_whitelist: true
+  private_chat_whitelist:
+    - "爱"
   blocklist_keywords:
     - "群聊"
     - "群"
     - "服务通知"
     - "订阅号"
     - "公众号"
+    - "微信支付"
+    - "微信团队"
+  non_private_keywords:
+    - "Official Accounts"
+    - "Service Accounts"
+    - "Weixin Games"
+    - "WeChat Pay"
+    - "WeChat Team"
+    - "Subscriptions"
+    - "Subscription"
+    - "公众号"
+    - "订阅号"
+    - "服务通知"
     - "微信支付"
     - "微信团队"
   min_ocr_confidence: 0.65

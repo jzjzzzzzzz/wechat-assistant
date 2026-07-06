@@ -8,7 +8,10 @@ def make_config():
         "screenshot_dir": "screenshots",
         "auto_reply": {
             "min_ocr_confidence": 0.65,
+            "require_private_chat_whitelist": True,
+            "private_chat_whitelist": ["爱", "Alice"],
             "blocklist_keywords": ["群", "服务通知", "公众号"],
+            "non_private_keywords": ["Official Accounts", "Service Accounts", "公众号"],
         },
     }
 
@@ -64,6 +67,22 @@ def test_notification_listener_ignores_non_wechat_ocr_text():
         make_config(),
         capture_func=lambda config: "notification.png",
         ocr_func=lambda path, **kwargs: [{"text": "Calendar", "confidence": 0.99}],
+    )
+
+    assert events == []
+
+
+def test_notification_listener_ignores_sender_outside_private_whitelist():
+    items = [
+        {"text": "微信", "confidence": 0.9},
+        {"text": "Mallory", "confidence": 0.88},
+        {"text": "hello", "confidence": 0.8},
+    ]
+
+    events = detect_notification_events(
+        make_config(),
+        capture_func=lambda config: "notification.png",
+        ocr_func=lambda path, **kwargs: items,
     )
 
     assert events == []

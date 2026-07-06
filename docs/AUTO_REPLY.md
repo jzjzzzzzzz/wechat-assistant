@@ -8,6 +8,8 @@ Default safety settings in `config/settings.yaml`:
 - `auto_reply.dry_run: true`
 - `allow_real_send: false`
 - `auto_reply.private_only: true`
+- `auto_reply.require_private_chat_whitelist: true`
+- `owner.status_default: online`
 
 The planned reply text is:
 
@@ -34,13 +36,33 @@ Both paths produce `AutoReplyEvent` objects with:
 
 ## Policy
 
-A candidate becomes `ready_for_reply` only after `delay_minutes` has elapsed since first seen. The default delay is 5 minutes.
+Owner status is the first gate:
+
+- `online`: candidates may be detected, but they are ignored with reason `owner_online`.
+- `offline`: whitelisted private candidates can become `ready_for_reply` immediately in dry-run mode when `owner.offline_reply_immediate` is true.
+
+`delay_minutes` remains available for future delayed modes, but offline immediate mode overrides it.
+
+Private-chat classification is conservative. A sender is treated as private only when:
+
+- the sender is known and not `unknown`
+- the sender does not match group/system/public-account blocklist keywords
+- the sender does not match configured non-private keywords
+- `auto_reply.require_private_chat_whitelist` is true and the sender is listed in `auto_reply.private_chat_whitelist`
+
+The default test private whitelist includes:
+
+```yaml
+private_chat_whitelist:
+  - "爱"
+```
 
 The policy ignores:
 
 - unknown senders
 - low-confidence OCR results
 - group chats and names matching configured blocklist keywords
+- senders outside the private chat whitelist
 - non-private candidates when `private_only` is true
 - repeat plans for the same sender inside `cooldown_minutes`
 
@@ -60,6 +82,10 @@ python -m src.main notification-check --once
 python -m src.main unread-scan --once
 python -m src.main auto-reply-daemon --dry-run --once
 python -m src.main auto-reply-daemon --dry-run
+python -m src.main owner-status
+python -m src.main owner-status set online
+python -m src.main owner-status set offline
+python -m src.main auto-reply-monitor --dry-run --interval-seconds 60 --minutes 60
 ```
 
 `auto-reply-daemon --dry-run --once` runs one notification pass, one unread-list fallback pass, applies policy, prints planned actions, writes logs, and exits.

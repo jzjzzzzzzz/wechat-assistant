@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Any, Literal
@@ -22,12 +23,28 @@ DEFAULT_AUTO_REPLY_CONFIG: dict[str, Any] = {
     "reply_message": "号主不在线～ AI自动回复的",
     "detection_priority": ["notification_ocr", "unread_chat_scan"],
     "allowed_test_contacts": ["文件传输助手"],
+    "require_private_chat_whitelist": True,
+    "private_chat_whitelist": ["爱"],
     "blocklist_keywords": [
         "群聊",
         "群",
         "服务通知",
         "订阅号",
         "公众号",
+        "微信支付",
+        "微信团队",
+    ],
+    "non_private_keywords": [
+        "Official Accounts",
+        "Service Accounts",
+        "Weixin Games",
+        "WeChat Pay",
+        "WeChat Team",
+        "Subscriptions",
+        "Subscription",
+        "公众号",
+        "订阅号",
+        "服务通知",
         "微信支付",
         "微信团队",
     ],
@@ -54,6 +71,21 @@ class AutoReplyEvent:
         return bool(self.sender.strip()) and self.sender.strip().lower() != "unknown"
 
 
+@dataclass(frozen=True)
+class ChatSenderClassification:
+    sender: str
+    normalized_sender: str
+    is_private: bool
+    reason: str | None = None
+    matched_whitelist: str | None = None
+    matched_blocklist_keyword: str | None = None
+    matched_non_private_keyword: str | None = None
+
+
+def normalize_chat_sender(sender: str) -> str:
+    return re.sub(r"\s+", " ", str(sender).replace("\u3000", " ")).strip()
+
+
 def auto_reply_config(config: dict[str, Any]) -> dict[str, Any]:
     merged = DEFAULT_AUTO_REPLY_CONFIG.copy()
     raw = config.get("auto_reply", {})
@@ -75,7 +107,10 @@ def validate_auto_reply_config(config: dict[str, Any]) -> dict[str, Any]:
         "reply_message": str,
         "detection_priority": list,
         "allowed_test_contacts": list,
+        "require_private_chat_whitelist": bool,
+        "private_chat_whitelist": list,
         "blocklist_keywords": list,
+        "non_private_keywords": list,
         "min_ocr_confidence": (int, float),
     }
     for key, expected_type in required_types.items():
@@ -104,18 +139,84 @@ def validate_auto_reply_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Invalid config key 'auto_reply.state_stale_minutes': must be >= 0")
     if not 0.0 <= ar["min_ocr_confidence"] <= 1.0:
         raise ValueError("Invalid config key 'auto_reply.min_ocr_confidence': must be between 0 and 1")
+    ar["private_chat_whitelist"] = [
+        normalize_chat_sender(str(item))
+        for item in ar.get("private_chat_whitelist", [])
+        if normalize_chat_sender(str(item))
+    ]
+    ar["blocklist_keywords"] = [
+        str(item).strip()
+        for item in ar.get("blocklist_keywords", [])
+        if str(item).strip()
+    ]
+    ar["non_private_keywords"] = [
+        str(item).strip()
+        for item in ar.get("non_private_keywords", [])
+        if str(item).strip()
+    ]
     return ar
 
 
-def should_ignore_by_name(sender: str, ar_config: dict[str, Any]) -> str | None:
-    normalized = sender.strip()
+def classify_chat_sender(sender: str, ar_config: dict[str, Any]) -> ChatSenderClassification:
+    normalized = normalize_chat_sender(sender)
     if not normalized or normalized.lower() == "unknown":
-        return "unknown sender"
+        return ChatSenderClassification(sender, normalized, False, "unknown sender")
+
     for keyword in ar_config.get("blocklist_keywords", []):
         keyword_text = str(keyword).strip()
         if keyword_text and keyword_text in normalized:
-            return f"sender matches blocklist keyword: {keyword_text}"
-    return None
+            return ChatSenderClassification(
+                sender,
+                normalized,
+                False,
+                f"sender matches blocklist keyword: {keyword_text}",
+                matched_blocklist_keyword=keyword_text,
+            )
+
+    for keyword in ar_config.get("non_private_keywords", []):
+        keyword_text = str(keyword).strip()
+        if keyword_text and keyword_text in normalized:
+            return ChatSenderClassification(
+                sender,
+                normalized,
+                False,
+                f"sender matches non-private keyword: {keyword_text}",
+                matched_non_private_keyword=keyword_text,
+            )
+
+    if re.search(r"[\(（]\s*\d+\s*[\)）]$", normalized):
+        return ChatSenderClassification(
+            sender,
+            normalized,
+            False,
+            "sender looks like group chat: member_count_suffix",
+        )
+
+    if bool(ar_config.get("require_private_chat_whitelist", True)):
+        whitelist = {
+            normalize_chat_sender(str(item))
+            for item in ar_config.get("private_chat_whitelist", [])
+            if normalize_chat_sender(str(item))
+        }
+        if normalized not in whitelist:
+            return ChatSenderClassification(
+                sender,
+                normalized,
+                False,
+                "sender not in private chat whitelist",
+            )
+        return ChatSenderClassification(
+            sender,
+            normalized,
+            True,
+            matched_whitelist=normalized,
+        )
+
+    return ChatSenderClassification(sender, normalized, True)
+
+
+def should_ignore_by_name(sender: str, ar_config: dict[str, Any]) -> str | None:
+    return classify_chat_sender(sender, ar_config).reason
 
 
 def _current_owner_status(config: dict[str, Any]) -> str:

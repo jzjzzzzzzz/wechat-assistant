@@ -9,7 +9,7 @@ from src.main import run_command
 BASE_TIME = datetime(2026, 7, 5, 12, 0, 0)
 
 
-def make_event(sender="Alice", first_seen_at=None):
+def make_event(sender="爱", first_seen_at=None):
     first_seen_at = first_seen_at or BASE_TIME - timedelta(minutes=5)
     return AutoReplyEvent(
         source="notification_ocr",
@@ -36,7 +36,10 @@ def make_config(tmp_path=None, owner_status_default="offline", owner_overrides=N
         "reply_message": "号主不在线～ AI自动回复的",
         "detection_priority": ["notification_ocr", "unread_chat_scan"],
         "allowed_test_contacts": ["文件传输助手"],
+        "require_private_chat_whitelist": True,
+        "private_chat_whitelist": ["爱", "Alice"],
         "blocklist_keywords": ["群", "服务通知", "公众号"],
+        "non_private_keywords": ["Official Accounts", "Service Accounts", "公众号"],
         "min_ocr_confidence": 0.65,
     }
     auto_reply.update(auto_reply_overrides)
@@ -117,7 +120,7 @@ def test_print_planned_actions_outputs_dry_run_text(tmp_path, capsys):
 
     output = capsys.readouterr().out
     assert "WOULD AUTO REPLY" in output
-    assert "Target: Alice" in output
+    assert "Target: 爱" in output
     assert "Message: 号主不在线～ AI自动回复的" in output
 
 
@@ -165,7 +168,7 @@ def test_persistent_first_seen_does_not_reset_before_delay(tmp_path):
         state_store=store,
     )
     second_pass = second_daemon.run_once()
-    record = store.get("Alice", "notification_ocr")
+    record = store.get("爱", "notification_ocr")
     store.close()
 
     assert first_pass[0].status == "pending"
@@ -187,7 +190,7 @@ def test_candidate_becomes_ready_after_delay_and_marks_dry_run_replied(tmp_path)
         state_store=store,
     )
     events = daemon.run_once()
-    record = store.get("Alice", "notification_ocr")
+    record = store.get("爱", "notification_ocr")
     store.close()
 
     assert events[0].status == "ready_for_reply"

@@ -34,7 +34,10 @@ def make_config(tmp_path, owner_status_default="offline"):
             "reply_message": "号主不在线～ AI自动回复的",
             "detection_priority": ["notification_ocr", "unread_chat_scan"],
             "allowed_test_contacts": ["文件传输助手"],
+            "require_private_chat_whitelist": True,
+            "private_chat_whitelist": ["爱", "Alice"],
             "blocklist_keywords": ["群", "服务通知", "公众号"],
+            "non_private_keywords": ["Official Accounts", "Service Accounts", "公众号"],
             "min_ocr_confidence": 0.65,
         },
     }

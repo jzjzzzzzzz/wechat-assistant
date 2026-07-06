@@ -247,10 +247,18 @@ def print_auto_reply_plan(config: dict[str, Any]) -> None:
         "cooldown_minutes",
         "state_stale_minutes",
         "private_only",
+        "require_private_chat_whitelist",
         "reply_message",
         "min_ocr_confidence",
     ):
         print(f"  {key}: {ar.get(key)}")
+    print("Private chat whitelist:")
+    private_whitelist = ar.get("private_chat_whitelist", [])
+    if private_whitelist:
+        for sender in private_whitelist:
+            print(f"  - {sender}")
+    else:
+        print("  - none")
     print("Detection priority:")
     for source in ar.get("detection_priority", []):
         print(f"  - {source}")

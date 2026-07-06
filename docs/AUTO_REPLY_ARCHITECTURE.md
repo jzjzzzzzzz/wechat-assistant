@@ -25,6 +25,7 @@ auto_reply:
   delay_minutes: 5
   poll_interval_seconds: 5
   cooldown_minutes: 60
+  state_stale_minutes: 1440
   private_only: true
   reply_message: "号主不在线～ AI自动回复的"
   detection_priority:
@@ -32,6 +33,9 @@ auto_reply:
     - "unread_chat_scan"
   allowed_test_contacts:
     - "文件传输助手"
+  require_private_chat_whitelist: true
+  private_chat_whitelist:
+    - "爱"
   blocklist_keywords:
     - "群聊"
     - "群"
@@ -40,7 +44,23 @@ auto_reply:
     - "公众号"
     - "微信支付"
     - "微信团队"
+  non_private_keywords:
+    - "Official Accounts"
+    - "Service Accounts"
+    - "WeChat Pay"
+    - "WeChat Team"
+    - "Subscriptions"
+    - "Subscription"
+    - "公众号"
+    - "订阅号"
+    - "服务通知"
+    - "微信支付"
+    - "微信团队"
   min_ocr_confidence: 0.65
+
+owner:
+  status_default: "online"
+  offline_reply_immediate: true
 ```
 
 The daemon must force in-memory dry-run safety for this milestone even if a caller passes unsafe runtime values.
@@ -70,15 +90,21 @@ It captures the likely macOS notification area, runs OCR, checks for a WeChat ma
 
 `unread_chat_scan` is the fallback strategy.
 
-It runs only from explicit commands or daemon polling, activates the already logged-in WeChat Mac UI, screenshots the left chat list, uses OCR/OpenCV-style visual inspection where available, extracts likely chat names, and filters groups, public accounts, service notifications, subscriptions, and system messages. It must not inspect WeChat storage.
+It runs only from explicit commands or daemon polling. The preferred path finds a visible WeChat window in the background, captures the window or visible bounds, verifies the screenshot is likely WeChat, then uses OCR/OpenCV-style visual inspection to extract likely chat names and unread red badges.
+
+Activation fallback is disabled by default. The scanner must not inspect WeChat storage.
 
 ## Policy
 
-The policy decides whether a candidate is still pending, ignored, or ready for dry-run reply planning.
+The policy decides whether a candidate is ignored, pending, or ready for dry-run reply planning.
 
-- A candidate becomes `ready_for_reply` only after `delay_minutes`.
+- Owner `online` ignores candidates with reason `owner_online`.
+- Owner `offline` can make whitelisted private candidates ready immediately when `owner.offline_reply_immediate` is true.
+- `delay_minutes` remains available for future delayed modes.
 - Duplicate reply plans for the same sender are blocked for `cooldown_minutes`.
 - `private_only` rejects non-private candidates.
+- `require_private_chat_whitelist` rejects senders outside `private_chat_whitelist`.
+- Group/system/public-account keywords are enforced before whitelist acceptance.
 - Unknown senders are ignored.
 - Low OCR confidence is ignored.
 - Blocklist keywords are enforced.
@@ -101,6 +127,8 @@ python -m src.main notification-check --once
 python -m src.main unread-scan --once
 python -m src.main auto-reply-daemon --dry-run --once
 python -m src.main auto-reply-daemon --dry-run
+python -m src.main owner-status
+python -m src.main auto-reply-monitor --dry-run --interval-seconds 60 --minutes 60
 ```
 
 The one-pass daemon command loads config, runs notification detection, runs fallback unread scanning, applies policy, prints planned dry-run actions, writes logs, sends nothing, and exits cleanly.

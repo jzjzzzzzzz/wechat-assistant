@@ -51,7 +51,23 @@ def make_config(**background_overrides):
         },
         "auto_reply": {
             "min_ocr_confidence": 0.65,
+            "require_private_chat_whitelist": True,
+            "private_chat_whitelist": ["爱", "Alice", "Bob"],
             "blocklist_keywords": ["群", "群聊", "服务通知", "订阅号", "公众号", "微信支付", "微信团队"],
+            "non_private_keywords": [
+                "Official Accounts",
+                "Service Accounts",
+                "Weixin Games",
+                "WeChat Pay",
+                "WeChat Team",
+                "Subscriptions",
+                "Subscription",
+                "公众号",
+                "订阅号",
+                "服务通知",
+                "微信支付",
+                "微信团队",
+            ],
         },
     }
 
@@ -360,6 +376,49 @@ def test_unread_scanner_filters_blocklisted_group_candidate():
     assert events == []
 
 
+def test_unread_scanner_filters_candidate_outside_private_whitelist():
+    items = [
+        {"text": "微信", "confidence": 0.95},
+        {"text": "Mallory", "confidence": 0.92},
+        {"text": "未读 1 条", "confidence": 0.9},
+    ]
+
+    events = scan_unread_events(
+        make_config(),
+        locator_func=lambda **kwargs: make_locator_result(),
+        window_capture_func=lambda window, config: WindowCaptureResult(True, "wechat.png", "visible_region", "ok"),
+        verifier_factory=lambda **kwargs: FakeVerifier(ok=True),
+        ocr_func=lambda path, **kwargs: items,
+    )
+    report = get_last_unread_scan_report()
+
+    assert events == []
+    assert report is not None
+    assert any("not_in_private_whitelist" in reason for reason in report.ignored_reasons)
+
+
+def test_unread_scanner_group_keyword_overrides_private_whitelist():
+    config = make_config()
+    config["auto_reply"] = dict(config["auto_reply"], private_chat_whitelist=["同学群"])
+    items = [
+        {"text": "同学群", "confidence": 0.92, "bbox": [[120, 112], [190, 112], [190, 145], [120, 145]]},
+    ]
+
+    events = scan_unread_events(
+        config,
+        locator_func=lambda **kwargs: make_locator_result(),
+        window_capture_func=lambda window, config: WindowCaptureResult(True, "wechat.png", "visible_region", "ok"),
+        verifier_factory=lambda **kwargs: FakeVerifier(ok=True),
+        ocr_func=lambda path, **kwargs: items,
+        badge_detector_func=lambda path: [UnreadBadge(305, 118, 26, 26, 0.82)],
+    )
+    report = get_last_unread_scan_report()
+
+    assert events == []
+    assert report is not None
+    assert any("blocklisted_sender" in reason for reason in report.ignored_reasons)
+
+
 def test_unread_scanner_filters_blocklisted_badge_candidate():
     items = [
         {"text": "同学群", "confidence": 0.92, "bbox": [[120, 112], [190, 112], [190, 145], [120, 145]]},
@@ -397,7 +456,8 @@ def test_unread_scanner_filters_english_public_account_badge_candidate():
 
     assert events == []
     assert report is not None
-    assert any("non_private_sender_keyword:Official Accounts" in reason for reason in report.ignored_reasons)
+    assert any("non_private_sender" in reason for reason in report.ignored_reasons)
+    assert any("sender matches non-private keyword: Official Accounts" in reason for reason in report.ignored_reasons)
 
 
 def test_unread_scanner_skips_when_window_not_found():
