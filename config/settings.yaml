@@ -46,3 +46,12 @@ auto_reply:
     - "微信支付"
     - "微信团队"
   min_ocr_confidence: 0.65
+
+background_scan:
+  enabled: true
+  prefer_background_capture: true
+  allow_activate_wechat_fallback: false
+  require_screenshot_verification: true
+  verifier_min_confidence: 0.70
+  debug_screenshot_dir: "screenshots/background_scan"
+  max_scan_interval_seconds: 30

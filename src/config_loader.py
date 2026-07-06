@@ -32,6 +32,15 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "vision_template_threshold": 0.85,
     "max_retry": 3,
     "auto_reply": DEFAULT_AUTO_REPLY_CONFIG.copy(),
+    "background_scan": {
+        "enabled": True,
+        "prefer_background_capture": True,
+        "allow_activate_wechat_fallback": False,
+        "require_screenshot_verification": True,
+        "verifier_min_confidence": 0.70,
+        "debug_screenshot_dir": "screenshots/background_scan",
+        "max_scan_interval_seconds": 30,
+    },
 }
 
 REQUIRED_TYPES: dict[str, type | tuple[type, ...]] = {
@@ -53,6 +62,7 @@ REQUIRED_TYPES: dict[str, type | tuple[type, ...]] = {
     "vision_template_threshold": (int, float),
     "max_retry": int,
     "auto_reply": dict,
+    "background_scan": dict,
 }
 
 
@@ -97,6 +107,28 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
         validated["auto_reply"] = validate_auto_reply_config(validated)
     except ValueError as exc:
         raise ConfigError(str(exc)) from exc
+    background_defaults = DEFAULT_SETTINGS["background_scan"].copy()
+    background_raw = validated.get("background_scan", {})
+    background_defaults.update(background_raw)
+    validated["background_scan"] = background_defaults
+    if not isinstance(validated["background_scan"].get("enabled"), bool):
+        raise ConfigError("Invalid config key 'background_scan.enabled': expected bool")
+    if not isinstance(validated["background_scan"].get("prefer_background_capture"), bool):
+        raise ConfigError("Invalid config key 'background_scan.prefer_background_capture': expected bool")
+    if not isinstance(validated["background_scan"].get("allow_activate_wechat_fallback"), bool):
+        raise ConfigError("Invalid config key 'background_scan.allow_activate_wechat_fallback': expected bool")
+    if not isinstance(validated["background_scan"].get("require_screenshot_verification"), bool):
+        raise ConfigError("Invalid config key 'background_scan.require_screenshot_verification': expected bool")
+    validated["background_scan"]["verifier_min_confidence"] = float(
+        validated["background_scan"]["verifier_min_confidence"]
+    )
+    validated["background_scan"]["max_scan_interval_seconds"] = float(
+        validated["background_scan"]["max_scan_interval_seconds"]
+    )
+    if not 0.0 <= validated["background_scan"]["verifier_min_confidence"] <= 1.0:
+        raise ConfigError("Invalid config key 'background_scan.verifier_min_confidence': must be between 0 and 1")
+    if validated["background_scan"]["max_scan_interval_seconds"] <= 0:
+        raise ConfigError("Invalid config key 'background_scan.max_scan_interval_seconds': must be > 0")
     return validated
 
 
