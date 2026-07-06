@@ -11,6 +11,7 @@ screenshots/**/*.png
 screenshots/**/*.jpg
 screenshots/**/*.jpeg
 logs/*.log
+logs/*.jsonl
 data/*.tmp
 data/*.sqlite3
 data/*.sqlite3-*

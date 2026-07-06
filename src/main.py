@@ -31,6 +31,9 @@ def build_parser() -> argparse.ArgumentParser:
             "background-scan",
             "owner-status",
             "status-menu",
+            "auto-reply-state",
+            "auto-reply-monitor",
+            "monitor-report",
         ],
         help="Command to run",
     )
@@ -61,6 +64,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--check", action="store_true", help="Run a command-specific check and exit.")
     parser.add_argument("--test", action="store_true", help="Run a command-specific test mode.")
     parser.add_argument(
+        "--interval-seconds",
+        type=float,
+        default=None,
+        help="Polling interval for limited-duration monitor commands.",
+    )
+    parser.add_argument(
+        "--minutes",
+        type=float,
+        default=60.0,
+        help="Runtime duration for limited-duration monitor commands.",
+    )
+    parser.add_argument(
         "--delay-minutes",
         type=float,
         default=None,
@@ -82,6 +97,8 @@ def run_command(
     scroll: bool = False,
     check: bool = False,
     test: bool = False,
+    interval_seconds: float | None = None,
+    minutes: float = 60.0,
     delay_minutes: float | None = None,
 ) -> int:
     try:
@@ -220,6 +237,35 @@ def run_command(
             return run_status_menu_test()
         return run_status_menu(config)
 
+    if command == "auto-reply-state":
+        from src.auto_reply_state import AutoReplyStateStore
+
+        if command_args and command_args != ["list"]:
+            print("Usage: auto-reply-state list")
+            return 2
+        with AutoReplyStateStore(config.get("database_path")) as store:
+            records = store.summarize()
+            print(f"database_path: {store.database_path}")
+            print(f"row_count: {len(records)}")
+            if not records:
+                print("No auto-reply state rows.")
+                return 0
+            for record in records:
+                print(
+                    "state: "
+                    f"sender={record.sender} source={record.source} status={record.last_status} "
+                    f"reason={record.last_reason or ''} confidence={record.confidence:.2f} "
+                    f"first_seen_at={record.first_seen_at.isoformat(timespec='seconds')} "
+                    f"last_seen_at={record.last_seen_at.isoformat(timespec='seconds')} "
+                    f"replied_dry_run={record.replied_dry_run} real_sent={record.real_sent}"
+                )
+        return 0
+
+    if command == "monitor-report":
+        from src.auto_reply_monitor import print_monitor_report
+
+        return print_monitor_report(config)
+
     if command == "notification-check":
         from src.notification_listener import notification_check_once
 
@@ -317,6 +363,16 @@ def run_command(
         daemon.run_forever()
         return 0
 
+    if command == "auto-reply-monitor":
+        from src.auto_reply_monitor import print_monitor_summary, run_auto_reply_monitor
+
+        if not dry_run:
+            print("auto-reply-monitor is dry-run only. Re-run with --dry-run.")
+            return 2
+        summary = run_auto_reply_monitor(config, interval_seconds=interval_seconds, minutes=minutes)
+        print_monitor_summary(summary)
+        return 0
+
     logger.error("Unknown command: %s", command)
     return 2
 
@@ -335,6 +391,8 @@ def main(argv: list[str] | None = None) -> int:
         scroll=args.scroll,
         check=args.check,
         test=args.test,
+        interval_seconds=args.interval_seconds,
+        minutes=args.minutes,
         delay_minutes=args.delay_minutes,
         command_args=args.command_args,
     )
