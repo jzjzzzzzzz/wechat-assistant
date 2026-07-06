@@ -12,6 +12,22 @@ These commands manage local helper processes only. They do not enable real WeCha
 
 Real auto-reply sending is disabled in this milestone.
 
+Auto-reply status semantics:
+
+- `🟢 OL` / `Online`: auto-reply system active; candidates may proceed through the remaining gates.
+- `🔴 OFF` / `Offline`: auto-reply system inactive; no auto-reply.
+- unknown or conflicting OCR: no auto-reply.
+
+## macOS Permissions
+
+Grant these permissions to the terminal app or packaged app that runs the assistant:
+
+- Screen Recording: required for menu-bar status OCR, notification OCR, and WeChat window screenshots.
+- Accessibility: required for any controlled UI actions and future safe real-send testing.
+- Automation: may be required by macOS if AppleScript/GUI automation fallback is used.
+
+After changing permissions, restart the terminal app.
+
 ## Status Menu
 
 Start the macOS owner-status menu:
@@ -37,6 +53,8 @@ scripts/stop_status_menu.sh
 ```
 
 The menu app only reads and writes `owner_status`. It does not scan WeChat, run OCR, send messages, click chats, type, or press Enter.
+
+While running, the menu app refreshes its title from the database every 2 seconds. If you change status with `owner-status set online/offline`, the top-right label should follow shortly.
 
 ## Dry-run Monitor
 
@@ -66,6 +84,25 @@ scripts/stop_monitor.sh
 
 The monitor stays dry-run only. It may detect candidates and print/log `WOULD AUTO REPLY`, but it does not send messages.
 
+## Status OCR Check
+
+Check the live top-right menu-bar status without scanning WeChat:
+
+```bash
+python -m src.main macos-status-check --once
+```
+
+Expected examples:
+
+```text
+raw_status: active
+db_status: online
+detected_text: 🟢 OL
+safe_to_auto_reply: True
+```
+
+If it prints `raw_status: unknown`, the safe behavior is no auto-reply. Enable Screen Recording permission or make the iBar/status-menu item visible.
+
 ## Runtime Status
 
 Check owner status, process state, logs, safety flags, and database path:
@@ -79,6 +116,57 @@ Stop both helper processes:
 ```bash
 python -m src.main runtime-stop-all
 ```
+
+## Dry-run Auto-reply
+
+One safe pass:
+
+```bash
+python -m src.main auto-reply-daemon --dry-run --once
+```
+
+Long-running dry-run:
+
+```bash
+python -m src.main auto-reply-daemon --dry-run
+```
+
+The daemon polls OL/OFF every pass and again before executing a ready dry-run action.
+
+## Safe File Transfer Real-send Test
+
+Keep real sending disabled until you explicitly test `文件传输助手`.
+
+Minimum config conditions for a future real-send test:
+
+- `dry_run: false`
+- `auto_reply.dry_run: false`
+- `allow_real_send: true`
+- `allowed_real_contacts` contains only `文件传输助手` / `File Transfer` unless a future explicit whitelist is intended
+- top-right status OCR says `online` / `OL`
+- sender classification is private, not group
+
+Do not test real sends against normal contacts or groups.
+
+## Confirming Blocks
+
+Confirm groups are blocked:
+
+```bash
+python -m src.main sender-classify "项目组(5)" "项目组（5）" "项目组（5人）" "Study Group(12)" "Family（8人）"
+```
+
+All should report `category: group_candidate`.
+
+Confirm OFF blocks:
+
+```bash
+python -m src.main owner-status set offline
+python -m src.main auto-reply-daemon --dry-run --once
+python -m src.main owner-status set online
+```
+
+When live status OCR is unavailable or shows OFF, the daemon logs a block reason and does not emit an actionable reply.
 
 ## Keeping The Mac Awake
 

@@ -253,26 +253,46 @@ def should_ignore_by_name(sender: str, ar_config: dict[str, Any]) -> str | None:
 
 
 def _current_owner_status(config: dict[str, Any]) -> str:
+    """Return current system status: 'online' (active/OL) or 'offline' (inactive/OFF) or 'unknown'.
+
+    Semantics (aligned with macOS top-right corner label):
+    - 'online' / OL (green)  → auto-reply system is ACTIVE  → reply IS allowed
+    - 'offline' / OFF (red)  → auto-reply system is INACTIVE → reply is BLOCKED
+    - 'unknown'              → cannot determine              → reply is BLOCKED (safe default)
+    """
     status = str(config.get("owner_status", "")).strip().lower()
-    if status in {"online", "offline"}:
+    if status in {"online", "offline", "unknown"}:
         return status
     owner = config.get("owner", {})
     if isinstance(owner, dict):
         default_status = str(owner.get("status_default", "online")).strip().lower()
         if default_status in {"online", "offline"}:
             return default_status
-    return "online"
+    return "unknown"
 
 
-def _offline_reply_immediate(config: dict[str, Any]) -> bool:
+def _immediate_reply_when_online(config: dict[str, Any]) -> bool:
+    """When system is online (OL), skip the delay window and reply immediately."""
     owner = config.get("owner", {})
     if isinstance(owner, dict):
+        # offline_reply_immediate key kept for config backward-compat; semantically now means
+        # 'when the system is active/online, reply without waiting the delay window'
         return bool(owner.get("offline_reply_immediate", True))
     return True
 
 
 class AutoReplyPolicy:
-    """Stateful policy for dry-run auto-reply planning."""
+    """Stateful policy for auto-reply planning.
+
+    Decision flow per event:
+      1. system_status == 'online' (OL)? → proceed
+         system_status == 'offline' (OFF) or 'unknown'? → block (ignored)
+      2. sender not blocklisted / not group / in whitelist? → proceed; else ignored
+      3. OCR confidence >= threshold? → proceed; else ignored
+      4. private_only and not private? → ignored
+      5. delay window elapsed (or immediate mode on)? → proceed; else pending
+      6. cooldown not active? → ready_for_reply; else ignored
+    """
 
     def __init__(self, config: dict[str, Any], *, now_func: Any | None = None) -> None:
         self.config = validate_auto_reply_config(config)
@@ -282,32 +302,61 @@ class AutoReplyPolicy:
         self._last_prepared_by_sender: dict[str, datetime] = {}
 
     def evaluate(self, event: AutoReplyEvent, *, now: datetime | None = None) -> AutoReplyEvent:
+        import logging
+        logger = logging.getLogger(__name__)
+
         current_time = now or self.now_func()
-        owner_status = _current_owner_status(self.config)
-        if owner_status == "online":
-            return replace(event, status="ignored", reason="owner_online")
+        system_status = _current_owner_status(self.config)
+
+        # Gate 1: system must be ONLINE (OL) to allow any reply
+        if system_status != "online":
+            reason = "system_offline" if system_status == "offline" else "system_status_unknown"
+            logger.info(
+                "Auto-reply blocked. sender=%s system_status=%s reason=%s",
+                event.sender, system_status, reason,
+            )
+            return replace(event, status="ignored", reason=reason)
+
+        logger.info(
+            "Auto-reply gate passed: system_status=online. sender=%s",
+            event.sender,
+        )
 
         reason = should_ignore_by_name(event.sender, self.config)
         if reason:
+            logger.info("Auto-reply blocked by sender filter. sender=%s reason=%s", event.sender, reason)
             return replace(event, status="ignored", reason=reason)
 
         if event.confidence < float(self.config["min_ocr_confidence"]):
+            logger.info(
+                "Auto-reply blocked: OCR confidence too low. sender=%s confidence=%.3f min=%.3f",
+                event.sender, event.confidence, self.config["min_ocr_confidence"],
+            )
             return replace(event, status="ignored", reason="OCR confidence below minimum")
 
         if self.config.get("private_only", True) and not event.is_private_candidate:
+            logger.info("Auto-reply blocked: private_only. sender=%s", event.sender)
             return replace(event, status="ignored", reason="private_only policy rejected candidate")
 
-        if not (owner_status == "offline" and _offline_reply_immediate(self.config)):
+        if not (system_status == "online" and _immediate_reply_when_online(self.config)):
             delay = timedelta(minutes=float(self.config["delay_minutes"]))
             if current_time - event.first_seen_at < delay:
+                logger.info(
+                    "Auto-reply pending: waiting delay window. sender=%s elapsed=%.0fs delay=%.0fs",
+                    event.sender,
+                    (current_time - event.first_seen_at).total_seconds(),
+                    delay.total_seconds(),
+                )
                 return replace(event, status="pending", reason="waiting for owner response window")
 
         cooldown = timedelta(minutes=float(self.config["cooldown_minutes"]))
         last_prepared = event.last_replied_at or self._last_prepared_by_sender.get(event.sender)
         if last_prepared is not None and current_time - last_prepared < cooldown:
+            logger.info("Auto-reply blocked: cooldown active. sender=%s", event.sender)
             return replace(event, status="ignored", reason="cooldown active for sender")
 
         self._last_prepared_by_sender[event.sender] = current_time
+        logger.info("Auto-reply READY. sender=%s message=%s", event.sender, self.config.get("reply_message", ""))
         return replace(event, status="ready_for_reply", reason=None)
 
     def plan_actions(self, events: list[AutoReplyEvent], *, now: datetime | None = None) -> list[AutoReplyEvent]:

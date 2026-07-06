@@ -7,10 +7,14 @@ writes the owner status in the project database; it does not scan WeChat.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import sys
 from typing import Any
 
 from src.owner_status import get_owner_status, set_owner_status, toggle_owner_status
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def menu_title_for_status(status: str) -> str:
@@ -103,9 +107,17 @@ def run_status_menu(config: dict[str, Any]) -> int:
                 None,
                 rumps.MenuItem("Quit", callback=rumps.quit_application),
             ]
+            timer_class = getattr(rumps, "Timer", None)
+            self._refresh_timer = None
+            if timer_class is not None:
+                self._refresh_timer = timer_class(self.refresh_title, 2)
+                self._refresh_timer.start()
 
-        def refresh_title(self) -> None:
-            self.title = menu_title_for_status(get_owner_status(config).status)
+        def refresh_title(self, *_args: Any) -> None:
+            try:
+                self.title = menu_title_for_status(get_owner_status(config).status)
+            except Exception as exc:
+                LOGGER.warning("status-menu title refresh failed safely: %s", exc)
 
         def set_online(self, _sender: Any) -> None:
             actions.set_online()

@@ -1,4 +1,7 @@
+from datetime import datetime
+
 from src.main import run_command
+from src.macos_status_detector import MacosStatusDetection
 
 
 def make_config(tmp_path):
@@ -88,6 +91,30 @@ def test_status_menu_check_cli_exits_without_gui_loop(monkeypatch, tmp_path):
 
     assert result == 0
     assert calls == ["check"]
+
+
+def test_macos_status_check_cli_prints_live_detection_without_side_effects(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr("src.main.load_config", lambda: make_config(tmp_path))
+    monkeypatch.setattr(
+        "src.macos_status_detector.detect_macos_status",
+        lambda config: MacosStatusDetection(
+            raw_status="active",
+            db_status="online",
+            detected_text="🟢 OL",
+            screenshot_path="/tmp/status.png",
+            detected_at=datetime(2026, 7, 7, 0, 0, 0),
+            confidence=0.9,
+        ),
+    )
+
+    result = run_command("macos-status-check", once=True)
+
+    output = capsys.readouterr().out
+    assert result == 0
+    assert "raw_status: active" in output
+    assert "db_status: online" in output
+    assert "detected_text: 🟢 OL" in output
+    assert "safe_to_auto_reply: True" in output
 
 
 def test_private_whitelist_cli_lists_configured_senders(monkeypatch, tmp_path, capsys):

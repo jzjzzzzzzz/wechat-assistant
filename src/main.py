@@ -31,6 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
             "background-scan",
             "owner-status",
             "status-menu",
+            "macos-status-check",
             "auto-reply-state",
             "auto-reply-monitor",
             "monitor-report",
@@ -280,6 +281,20 @@ def run_command(
             return run_status_menu_test()
         return run_status_menu(config)
 
+    if command == "macos-status-check":
+        from src.macos_status_detector import detect_macos_status
+
+        detection = detect_macos_status(config)
+        print(f"raw_status: {detection.raw_status}")
+        print(f"db_status: {detection.db_status}")
+        print(f"detected_text: {detection.detected_text or 'none'}")
+        print(f"screenshot_path: {detection.screenshot_path or 'none'}")
+        print(f"confidence: {detection.confidence:.2f}")
+        print(f"safe_to_auto_reply: {detection.raw_status == 'active'}")
+        if detection.raw_status == "unknown":
+            print("safe_default: no send")
+        return 0
+
     if command == "auto-reply-state":
         from src.auto_reply_state import AutoReplyStateStore
 
@@ -401,10 +416,21 @@ def run_command(
     if command == "auto-reply-daemon":
         from src.auto_reply_daemon import AutoReplyDaemon, print_planned_actions
 
-        if not dry_run:
-            print("auto-reply-daemon is dry-run only in this milestone. Re-run with --dry-run.")
-            return 2
-        daemon = AutoReplyDaemon(config)
+        # dry_run_mode=True unless caller passes --force-send (which sets allow_real_send=True)
+        # Normally run with --dry-run for safe monitoring, or let config drive it.
+        auto_reply_runtime = config.get("auto_reply", {}) if isinstance(config.get("auto_reply"), dict) else {}
+        daemon_dry_run = (
+            dry_run
+            or bool(config.get("dry_run", True))
+            or bool(auto_reply_runtime.get("dry_run", True))
+        )
+        if not daemon_dry_run and not config.get("allow_real_send", False):
+            logger.warning(
+                "auto-reply-daemon: dry_run=false but allow_real_send=false "
+                "— falling back to dry-run mode for safety."
+            )
+            daemon_dry_run = True
+        daemon = AutoReplyDaemon(config, dry_run_mode=daemon_dry_run)
         if once:
             try:
                 events = daemon.run_once()
@@ -413,6 +439,9 @@ def run_command(
                 state_store = getattr(daemon, "state_store", None)
                 if state_store is not None:
                     state_store.close()
+                status_watcher = getattr(daemon, "_status_watcher", None)
+                if status_watcher is not None:
+                    status_watcher.close()
             return 0
         daemon.run_forever()
         return 0

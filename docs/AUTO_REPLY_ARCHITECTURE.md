@@ -1,12 +1,12 @@
 # Auto-reply architecture
 
-This architecture is for a dry-run-only milestone. The assistant may detect and plan an auto-reply, but it must not send a WeChat message.
+This architecture keeps dry-run defaults and supports a guarded path for future real-send testing only after every safety gate passes.
 
 ## Safety invariants
 
 - `dry_run` stays true by default.
 - `allow_real_send` stays false by default.
-- Auto-reply code must not call the real message sender.
+- Auto-reply code must call the real message sender only through the final send gate.
 - Auto-reply code must not read WeChat databases.
 - Auto-reply code must not decrypt files.
 - Auto-reply code must not extract passwords, cookies, tokens, sessions, or other credentials.
@@ -76,7 +76,7 @@ notification_ocr:
     - "iBar"
 ```
 
-The daemon must force in-memory dry-run safety for this milestone even if a caller passes unsafe runtime values.
+The daemon must respect root `dry_run`, `auto_reply.dry_run`, and `allow_real_send`. Real-send mode requires all dry-run flags false and `allow_real_send: true`, then still must pass the final send gate.
 
 ## Event model
 
@@ -95,6 +95,8 @@ Detection paths must produce unified `AutoReplyEvent` values:
 
 ## Primary detection
 
+`macos_status_ocr` is the first runtime gate. Each daemon pass captures the top-right menu bar, OCRs the status-menu title, and maps `OL`/`Online` to `online`, `OFF`/`Offline` to `offline`, and failures or conflicting OCR to `unknown`. Unknown is a hard no-send state.
+
 `notification_ocr` is the primary strategy.
 
 It captures the likely macOS notification area, runs OCR, checks for a WeChat marker, extracts sender and preview best-effort, filters low-confidence and blocked candidates, and emits dry-run candidate events only. The capture defaults to starting below the macOS menu bar so iBar and status-menu labels do not become OCR input. Missing Screen Recording permission must be logged clearly and return no events instead of crashing.
@@ -109,16 +111,17 @@ Activation fallback is disabled by default. The scanner must not inspect WeChat 
 
 ## Policy
 
-The policy decides whether a candidate is ignored, pending, or ready for dry-run reply planning.
+The policy decides whether a candidate is ignored, pending, or ready for reply planning.
 
-- Owner `online` ignores candidates with reason `owner_online`.
-- Owner `offline` can make whitelisted private candidates ready immediately when `owner.offline_reply_immediate` is true.
+- Runtime status `online` / `OL` allows candidates to proceed to the remaining gates.
+- Runtime status `offline` / `OFF` ignores candidates with reason `system_offline`.
+- Runtime status `unknown` ignores candidates with reason `system_status_unknown`.
 - `delay_minutes` remains available for future delayed modes.
 - Duplicate reply plans for the same sender are blocked for `cooldown_minutes`.
 - `private_only` rejects non-private candidates.
 - `require_private_chat_whitelist` rejects senders outside `private_chat_whitelist`.
 - Group/system/public-account keywords are enforced before whitelist acceptance.
-- Sender names ending in member counts such as `项目组(5)` or `项目组（5人）` are treated as group candidates before whitelist acceptance.
+- Sender names ending in member counts such as `项目组(5)`, `项目组（5）`, `项目组（5人）`, `Study Group(12)`, or `Family（8人）` are treated as group candidates before whitelist acceptance.
 - Unknown senders are ignored.
 - Low OCR confidence is ignored.
 - Blocklist keywords are enforced.
@@ -142,11 +145,12 @@ python -m src.main unread-scan --once
 python -m src.main auto-reply-daemon --dry-run --once
 python -m src.main auto-reply-daemon --dry-run
 python -m src.main owner-status
+python -m src.main macos-status-check --once
 python -m src.main private-whitelist list
 python -m src.main sender-classify 爱 "项目组(5)" "Official Accounts"
 python -m src.main auto-reply-monitor --dry-run --interval-seconds 60 --minutes 60
 ```
 
-The one-pass daemon command loads config, runs notification detection, runs fallback unread scanning, applies policy, prints planned dry-run actions, writes logs, sends nothing, and exits cleanly.
+The one-pass daemon command loads config, checks top-right status, runs notification detection, runs fallback unread scanning, applies policy, checks the final send gate for ready candidates, prints planned dry-run actions when allowed, writes logs, sends nothing in dry-run mode, and exits cleanly.
 
 The sender classification commands are local policy checks only. They do not start OCR, scanning, WeChat UI actions, or message sending.
