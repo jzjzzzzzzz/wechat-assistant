@@ -72,3 +72,16 @@ def test_unread_scan_scroll_cli_override(monkeypatch, tmp_path, capsys):
     assert run_command("unread-scan", once=True, scroll=True) == 0
     assert captured["scroll"] is True
     assert "scroll_scan_enabled: True" in capsys.readouterr().out
+
+
+def test_status_menu_check_cli_exits_without_gui_loop(monkeypatch, tmp_path):
+    calls = []
+
+    monkeypatch.setattr("src.main.load_config", lambda: make_config(tmp_path))
+    monkeypatch.setattr("src.status_menu.status_menu_check", lambda config: calls.append("check") or 0)
+    monkeypatch.setattr("src.status_menu.run_status_menu", lambda config: calls.append("run") or 0)
+
+    result = run_command("status-menu", check=True)
+
+    assert result == 0
+    assert calls == ["check"]

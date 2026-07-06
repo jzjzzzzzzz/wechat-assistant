@@ -58,6 +58,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dry-run", action="store_true", help="Force dry-run behavior for auto-reply commands.")
     parser.add_argument("--once", action="store_true", help="Run one detection pass and exit.")
     parser.add_argument("--scroll", action="store_true", help="Enable explicit unread chat-list scroll scan for this run.")
+    parser.add_argument("--check", action="store_true", help="Run a command-specific check and exit.")
+    parser.add_argument("--test", action="store_true", help="Run a command-specific test mode.")
     parser.add_argument(
         "--delay-minutes",
         type=float,
@@ -78,6 +80,8 @@ def run_command(
     dry_run: bool = False,
     once: bool = False,
     scroll: bool = False,
+    check: bool = False,
+    test: bool = False,
     delay_minutes: float | None = None,
 ) -> int:
     try:
@@ -208,8 +212,12 @@ def run_command(
         return 0
 
     if command == "status-menu":
-        from src.status_menu import run_status_menu
+        from src.status_menu import run_status_menu, run_status_menu_test, status_menu_check
 
+        if check:
+            return status_menu_check(config)
+        if test:
+            return run_status_menu_test()
         return run_status_menu(config)
 
     if command == "notification-check":
@@ -325,6 +333,8 @@ def main(argv: list[str] | None = None) -> int:
         dry_run=args.dry_run,
         once=args.once,
         scroll=args.scroll,
+        check=args.check,
+        test=args.test,
         delay_minutes=args.delay_minutes,
         command_args=args.command_args,
     )
