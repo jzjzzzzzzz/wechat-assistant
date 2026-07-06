@@ -1,6 +1,13 @@
 from datetime import datetime
 
-from src.unread_scanner import scan_unread_events
+from PIL import Image, ImageDraw
+
+from src.unread_scanner import (
+    UnreadBadge,
+    _associate_badges_with_ocr_rows,
+    detect_unread_badges,
+    scan_unread_events,
+)
 from src.wechat_screenshot_verifier import ScreenshotVerification
 from src.window_capture import WindowCaptureResult
 from src.window_locator import WeChatWindow, WindowBounds, WindowLocatorResult
@@ -87,6 +94,82 @@ def test_background_unread_scanner_detects_private_unread_candidate_from_mock_oc
     assert events[0].confidence >= 0.65
 
 
+def test_detect_unread_badges_finds_synthetic_red_badge(tmp_path):
+    image_path = tmp_path / "wechat.png"
+    image = Image.new("RGB", (900, 700), "white")
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((0, 0, 80, 700), fill=(235, 235, 235))
+    draw.rectangle((80, 0, 360, 700), fill=(246, 246, 246))
+    draw.ellipse((305, 118, 331, 144), fill=(235, 75, 67))
+    image.save(image_path)
+
+    badges = detect_unread_badges(image_path)
+
+    assert len(badges) == 1
+    assert badges[0].confidence >= 0.65
+
+
+def test_associate_badges_with_nearest_ocr_chat_name_row():
+    badges = [UnreadBadge(305, 118, 26, 26, 0.8)]
+    ocr_items = [
+        {
+            "text": "Alice",
+            "confidence": 0.91,
+            "bbox": [[120, 112], [190, 112], [190, 145], [120, 145]],
+        },
+        {
+            "text": "Bob",
+            "confidence": 0.91,
+            "bbox": [[120, 212], [180, 212], [180, 245], [120, 245]],
+        },
+    ]
+
+    candidates = _associate_badges_with_ocr_rows(badges, ocr_items, image_height=700)
+
+    assert candidates == [("Alice", 0.8, "red_unread_badge")]
+
+
+def test_associate_badges_preserves_numeric_badge_count_from_ocr():
+    badges = [UnreadBadge(305, 118, 26, 26, 0.8)]
+    ocr_items = [
+        {
+            "text": "Alice",
+            "confidence": 0.91,
+            "bbox": [[120, 112], [190, 112], [190, 145], [120, 145]],
+        },
+        {
+            "text": "3",
+            "confidence": 0.85,
+            "bbox": [[313, 122], [323, 122], [323, 138], [313, 138]],
+        },
+    ]
+
+    candidates = _associate_badges_with_ocr_rows(badges, ocr_items, image_height=700)
+
+    assert candidates == [("Alice", 0.8, "red_unread_badge:3")]
+
+
+def test_background_unread_scanner_detects_badge_candidate_without_unread_text():
+    items = [
+        {"text": "微信", "confidence": 0.95, "bbox": [[20, 20], [80, 20], [80, 50], [20, 50]]},
+        {"text": "Alice", "confidence": 0.92, "bbox": [[120, 112], [190, 112], [190, 145], [120, 145]]},
+    ]
+
+    events = scan_unread_events(
+        make_config(),
+        locator_func=lambda **kwargs: make_locator_result(),
+        window_capture_func=lambda window, config: WindowCaptureResult(True, "wechat.png", "visible_region", "ok"),
+        verifier_factory=lambda **kwargs: FakeVerifier(ok=True),
+        ocr_func=lambda path, **kwargs: items,
+        badge_detector_func=lambda path: [UnreadBadge(305, 118, 26, 26, 0.82)],
+        now_func=lambda: BASE_TIME,
+    )
+
+    assert len(events) == 1
+    assert events[0].sender == "Alice"
+    assert events[0].message_preview == "red_unread_badge"
+
+
 def test_unread_scanner_skips_ocr_if_verification_fails():
     calls = []
 
@@ -115,6 +198,23 @@ def test_unread_scanner_filters_blocklisted_group_candidate():
         window_capture_func=lambda window, config: WindowCaptureResult(True, "wechat.png", "visible_region", "ok"),
         verifier_factory=lambda **kwargs: FakeVerifier(ok=True),
         ocr_func=lambda path, **kwargs: items,
+    )
+
+    assert events == []
+
+
+def test_unread_scanner_filters_blocklisted_badge_candidate():
+    items = [
+        {"text": "同学群", "confidence": 0.92, "bbox": [[120, 112], [190, 112], [190, 145], [120, 145]]},
+    ]
+
+    events = scan_unread_events(
+        make_config(),
+        locator_func=lambda **kwargs: make_locator_result(),
+        window_capture_func=lambda window, config: WindowCaptureResult(True, "wechat.png", "visible_region", "ok"),
+        verifier_factory=lambda **kwargs: FakeVerifier(ok=True),
+        ocr_func=lambda path, **kwargs: items,
+        badge_detector_func=lambda path: [UnreadBadge(305, 118, 26, 26, 0.82)],
     )
 
     assert events == []
