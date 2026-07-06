@@ -32,6 +32,22 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "vision_template_threshold": 0.85,
     "max_retry": 3,
     "auto_reply": DEFAULT_AUTO_REPLY_CONFIG.copy(),
+    "owner": {
+        "status_default": "online",
+        "offline_reply_immediate": True,
+        "status_menu_enabled": True,
+    },
+    "unread_scan": {
+        "enable_scroll_scan": False,
+        "max_scroll_pages": 5,
+        "scroll_amount": -5,
+        "scroll_pause_seconds": 0.5,
+        "restore_position_after_scan": True,
+        "stop_on_first_private_candidate": True,
+        "ignore_public_accounts": True,
+        "ignore_service_accounts": True,
+        "ignore_group_chats": True,
+    },
     "background_scan": {
         "enabled": True,
         "prefer_background_capture": True,
@@ -62,6 +78,8 @@ REQUIRED_TYPES: dict[str, type | tuple[type, ...]] = {
     "vision_template_threshold": (int, float),
     "max_retry": int,
     "auto_reply": dict,
+    "owner": dict,
+    "unread_scan": dict,
     "background_scan": dict,
 }
 
@@ -107,6 +125,42 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
         validated["auto_reply"] = validate_auto_reply_config(validated)
     except ValueError as exc:
         raise ConfigError(str(exc)) from exc
+
+    owner_defaults = DEFAULT_SETTINGS["owner"].copy()
+    owner_raw = validated.get("owner", {})
+    owner_defaults.update(owner_raw)
+    validated["owner"] = owner_defaults
+    if validated["owner"].get("status_default") not in {"online", "offline"}:
+        raise ConfigError("Invalid config key 'owner.status_default': expected online or offline")
+    if not isinstance(validated["owner"].get("offline_reply_immediate"), bool):
+        raise ConfigError("Invalid config key 'owner.offline_reply_immediate': expected bool")
+    if not isinstance(validated["owner"].get("status_menu_enabled"), bool):
+        raise ConfigError("Invalid config key 'owner.status_menu_enabled': expected bool")
+
+    unread_defaults = DEFAULT_SETTINGS["unread_scan"].copy()
+    unread_raw = validated.get("unread_scan", {})
+    unread_defaults.update(unread_raw)
+    validated["unread_scan"] = unread_defaults
+    for key in (
+        "enable_scroll_scan",
+        "restore_position_after_scan",
+        "stop_on_first_private_candidate",
+        "ignore_public_accounts",
+        "ignore_service_accounts",
+        "ignore_group_chats",
+    ):
+        if not isinstance(validated["unread_scan"].get(key), bool):
+            raise ConfigError(f"Invalid config key 'unread_scan.{key}': expected bool")
+    validated["unread_scan"]["max_scroll_pages"] = int(validated["unread_scan"]["max_scroll_pages"])
+    validated["unread_scan"]["scroll_amount"] = int(validated["unread_scan"]["scroll_amount"])
+    validated["unread_scan"]["scroll_pause_seconds"] = float(
+        validated["unread_scan"]["scroll_pause_seconds"]
+    )
+    if validated["unread_scan"]["max_scroll_pages"] < 0:
+        raise ConfigError("Invalid config key 'unread_scan.max_scroll_pages': must be >= 0")
+    if validated["unread_scan"]["scroll_pause_seconds"] < 0:
+        raise ConfigError("Invalid config key 'unread_scan.scroll_pause_seconds': must be >= 0")
+
     background_defaults = DEFAULT_SETTINGS["background_scan"].copy()
     background_raw = validated.get("background_scan", {})
     background_defaults.update(background_raw)

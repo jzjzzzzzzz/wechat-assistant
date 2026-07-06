@@ -81,9 +81,19 @@ SCHEMA_STATEMENTS = [
         UNIQUE(sender, source)
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS owner_status (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        status TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        updated_by TEXT NOT NULL DEFAULT 'cli',
+        note TEXT
+    )
+    """,
     "CREATE INDEX IF NOT EXISTS idx_birthday_tasks_birthday ON birthday_tasks (birthday)",
     "CREATE INDEX IF NOT EXISTS idx_audit_events_created_at ON audit_events (created_at)",
     "CREATE INDEX IF NOT EXISTS idx_auto_reply_state_sender_source ON auto_reply_state (sender, source)",
+    "CREATE INDEX IF NOT EXISTS idx_owner_status_updated_at ON owner_status (updated_at)",
 ]
 
 

@@ -118,16 +118,41 @@ def should_ignore_by_name(sender: str, ar_config: dict[str, Any]) -> str | None:
     return None
 
 
+def _current_owner_status(config: dict[str, Any]) -> str:
+    status = str(config.get("owner_status", "")).strip().lower()
+    if status in {"online", "offline"}:
+        return status
+    owner = config.get("owner", {})
+    if isinstance(owner, dict):
+        default_status = str(owner.get("status_default", "online")).strip().lower()
+        if default_status in {"online", "offline"}:
+            return default_status
+    return "online"
+
+
+def _offline_reply_immediate(config: dict[str, Any]) -> bool:
+    owner = config.get("owner", {})
+    if isinstance(owner, dict):
+        return bool(owner.get("offline_reply_immediate", True))
+    return True
+
+
 class AutoReplyPolicy:
     """Stateful policy for dry-run auto-reply planning."""
 
     def __init__(self, config: dict[str, Any], *, now_func: Any | None = None) -> None:
         self.config = validate_auto_reply_config(config)
+        self.config["owner_status"] = config.get("owner_status")
+        self.config["owner"] = config.get("owner", {})
         self.now_func = now_func or datetime.now
         self._last_prepared_by_sender: dict[str, datetime] = {}
 
     def evaluate(self, event: AutoReplyEvent, *, now: datetime | None = None) -> AutoReplyEvent:
         current_time = now or self.now_func()
+        owner_status = _current_owner_status(self.config)
+        if owner_status == "online":
+            return replace(event, status="ignored", reason="owner_online")
+
         reason = should_ignore_by_name(event.sender, self.config)
         if reason:
             return replace(event, status="ignored", reason=reason)
@@ -138,9 +163,10 @@ class AutoReplyPolicy:
         if self.config.get("private_only", True) and not event.is_private_candidate:
             return replace(event, status="ignored", reason="private_only policy rejected candidate")
 
-        delay = timedelta(minutes=float(self.config["delay_minutes"]))
-        if current_time - event.first_seen_at < delay:
-            return replace(event, status="pending", reason="waiting for owner response window")
+        if not (owner_status == "offline" and _offline_reply_immediate(self.config)):
+            delay = timedelta(minutes=float(self.config["delay_minutes"]))
+            if current_time - event.first_seen_at < delay:
+                return replace(event, status="pending", reason="waiting for owner response window")
 
         cooldown = timedelta(minutes=float(self.config["cooldown_minutes"]))
         last_prepared = event.last_replied_at or self._last_prepared_by_sender.get(event.sender)

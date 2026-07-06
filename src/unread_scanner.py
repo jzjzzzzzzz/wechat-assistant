@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import subprocess
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -820,6 +821,136 @@ def _background_config(config: dict[str, Any]) -> dict[str, Any]:
     return defaults
 
 
+def _unread_scan_config(config: dict[str, Any]) -> dict[str, Any]:
+    defaults = {
+        "enable_scroll_scan": False,
+        "max_scroll_pages": 5,
+        "scroll_amount": -5,
+        "scroll_pause_seconds": 0.5,
+        "restore_position_after_scan": True,
+        "stop_on_first_private_candidate": True,
+        "ignore_public_accounts": True,
+        "ignore_service_accounts": True,
+        "ignore_group_chats": True,
+    }
+    raw = config.get("unread_scan", {})
+    if isinstance(raw, dict):
+        defaults.update(raw)
+    defaults["enable_scroll_scan"] = bool(defaults.get("enable_scroll_scan", False))
+    defaults["max_scroll_pages"] = max(0, int(defaults.get("max_scroll_pages", 5)))
+    defaults["scroll_amount"] = int(defaults.get("scroll_amount", -5))
+    defaults["scroll_pause_seconds"] = max(0.0, float(defaults.get("scroll_pause_seconds", 0.5)))
+    defaults["restore_position_after_scan"] = bool(defaults.get("restore_position_after_scan", True))
+    defaults["stop_on_first_private_candidate"] = bool(defaults.get("stop_on_first_private_candidate", True))
+    return defaults
+
+
+def _chat_list_scroll_point(window: WeChatWindow) -> tuple[int, int] | None:
+    if not window.can_attempt_background_capture:
+        return None
+    bounds = window.bounds
+    if bounds.width < 300 or bounds.height < 300:
+        return None
+    x_offset = min(max(140, int(bounds.width * 0.12)), int(bounds.width * 0.35))
+    y_offset = int(bounds.height * 0.45)
+    return bounds.x + x_offset, bounds.y + y_offset
+
+
+def _scroll_at_point(scroll_func: Callable[..., Any], amount: int, point: tuple[int, int]) -> None:
+    x, y = point
+    try:
+        scroll_func(amount, x=x, y=y)
+    except TypeError:
+        scroll_func(amount)
+
+
+def _default_scroll_func() -> Callable[..., Any] | None:
+    try:
+        import pyautogui  # type: ignore
+
+        return pyautogui.scroll
+    except Exception as exc:  # pragma: no cover - local GUI dependency
+        LOGGER.warning("Scroll scan unavailable; pyautogui import failed: %s", exc)
+        return None
+
+
+def _without_scroll_scan(config: dict[str, Any]) -> dict[str, Any]:
+    copied = dict(config)
+    unread = dict(copied.get("unread_scan", {}))
+    unread["enable_scroll_scan"] = False
+    copied["unread_scan"] = unread
+    return copied
+
+
+def _merge_unique_events(base: list[AutoReplyEvent], extra: list[AutoReplyEvent]) -> list[AutoReplyEvent]:
+    seen = {(event.source, event.sender) for event in base}
+    merged = list(base)
+    for event in extra:
+        key = (event.source, event.sender)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(event)
+    return merged
+
+
+def _run_optional_scroll_scan(
+    config: dict[str, Any],
+    *,
+    window: WeChatWindow | None,
+    page_scan_func: Callable[[], list[AutoReplyEvent]],
+    scroll_func: Callable[..., Any] | None = None,
+    sleep_func: Callable[[float], None] = time.sleep,
+) -> list[AutoReplyEvent]:
+    scan_config = _unread_scan_config(config)
+    if not scan_config.get("enable_scroll_scan", False):
+        return []
+    if window is None:
+        LOGGER.warning("Scroll scan skipped: chat-list region cannot be determined without a verified WeChat window.")
+        return []
+    point = _chat_list_scroll_point(window)
+    if point is None:
+        LOGGER.warning("Scroll scan skipped: chat-list region cannot be safely determined.")
+        return []
+    scroll = scroll_func or _default_scroll_func()
+    if scroll is None:
+        LOGGER.warning("Scroll scan skipped: scroll function unavailable.")
+        return []
+
+    max_pages = int(scan_config["max_scroll_pages"])
+    amount = int(scan_config["scroll_amount"])
+    pause = float(scan_config["scroll_pause_seconds"])
+    restore = bool(scan_config["restore_position_after_scan"])
+    stop_on_first = bool(scan_config["stop_on_first_private_candidate"])
+    if max_pages <= 0 or amount == 0:
+        LOGGER.info("Scroll scan skipped: max pages or scroll amount is zero.")
+        return []
+
+    events: list[AutoReplyEvent] = []
+    pages_scrolled = 0
+    try:
+        for page in range(max_pages):
+            _scroll_at_point(scroll, amount, point)
+            pages_scrolled += 1
+            LOGGER.info("Scroll scan page=%s amount=%s point=%s", page + 1, amount, point)
+            if pause:
+                sleep_func(pause)
+            page_events = page_scan_func()
+            events = _merge_unique_events(events, page_events)
+            if page_events and stop_on_first:
+                break
+    except Exception as exc:
+        LOGGER.warning("Scroll scan failed safely: %s", exc)
+    finally:
+        if restore and pages_scrolled:
+            try:
+                _scroll_at_point(scroll, -amount * pages_scrolled, point)
+                LOGGER.info("Scroll scan restore attempted; certainty=uncertain pages=%s", pages_scrolled)
+            except Exception as exc:
+                LOGGER.warning("Scroll scan restore failed safely; certainty=uncertain error=%s", exc)
+    return events
+
+
 def _ocr_image(
     image_path: str,
     *,
@@ -1008,6 +1139,8 @@ def scan_unread_events(
     ocr_func: Callable[..., list[dict[str, Any]]] = read_image_text,
     badge_detector_func: Callable[[str | Path], list[UnreadBadge]] = detect_unread_badges,
     now_func: Callable[[], datetime] = datetime.now,
+    scroll_func: Callable[..., Any] | None = None,
+    sleep_func: Callable[[float], None] = time.sleep,
 ) -> list[AutoReplyEvent]:
     global _LAST_UNREAD_SCAN_REPORT
     _LAST_UNREAD_SCAN_REPORT = None
@@ -1105,9 +1238,48 @@ def scan_unread_events(
                 ],
             )
             LOGGER.info("Background unread scan produced %s auto-reply candidate(s).", len(events))
+            unread_config = _unread_scan_config(config)
+            if (
+                unread_config.get("enable_scroll_scan", False)
+                and not (events and unread_config.get("stop_on_first_private_candidate", True))
+            ):
+                no_scroll_config = _without_scroll_scan(config)
+
+                def page_scan() -> list[AutoReplyEvent]:
+                    return scan_unread_events(
+                        no_scroll_config,
+                        locator_func=locator_func,
+                        window_capture_func=window_capture_func,
+                        verifier_factory=verifier_factory,
+                        activate_func=activate_func,
+                        frontmost_func=frontmost_func,
+                        capture_func=capture_func,
+                        ocr_func=ocr_func,
+                        badge_detector_func=badge_detector_func,
+                        now_func=now_func,
+                        scroll_func=None,
+                        sleep_func=sleep_func,
+                    )
+
+                scrolled_events = _run_optional_scroll_scan(
+                    config,
+                    window=result.window,
+                    page_scan_func=page_scan,
+                    scroll_func=scroll_func,
+                    sleep_func=sleep_func,
+                )
+                events = _merge_unique_events(events, scrolled_events)
             return events
 
         LOGGER.info("Background unread scan produced no candidates: %s", result.message)
+        if _unread_scan_config(config).get("enable_scroll_scan", False):
+            _run_optional_scroll_scan(
+                config,
+                window=result.window,
+                page_scan_func=lambda: [],
+                scroll_func=scroll_func,
+                sleep_func=sleep_func,
+            )
 
     if bg.get("allow_activate_wechat_fallback", False):
         return _legacy_activate_scan_unread_events(

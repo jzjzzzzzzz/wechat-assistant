@@ -28,3 +28,11 @@ def test_default_allow_real_send_is_false() -> None:
     config = load_config()
 
     assert config["allow_real_send"] is False
+
+
+def test_default_owner_status_is_online_and_scroll_disabled() -> None:
+    config = load_config()
+
+    assert config["owner"]["status_default"] == "online"
+    assert config["owner"]["offline_reply_immediate"] is True
+    assert config["unread_scan"]["enable_scroll_scan"] is False

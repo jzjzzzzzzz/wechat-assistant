@@ -48,6 +48,22 @@ auto_reply:
     - "微信团队"
   min_ocr_confidence: 0.65
 
+owner:
+  status_default: "online"
+  offline_reply_immediate: true
+  status_menu_enabled: true
+
+unread_scan:
+  enable_scroll_scan: false
+  max_scroll_pages: 5
+  scroll_amount: -5
+  scroll_pause_seconds: 0.5
+  restore_position_after_scan: true
+  stop_on_first_private_candidate: true
+  ignore_public_accounts: true
+  ignore_service_accounts: true
+  ignore_group_chats: true
+
 background_scan:
   enabled: true
   prefer_background_capture: true

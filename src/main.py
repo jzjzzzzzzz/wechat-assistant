@@ -29,9 +29,12 @@ def build_parser() -> argparse.ArgumentParser:
             "notification-check",
             "unread-scan",
             "background-scan",
+            "owner-status",
+            "status-menu",
         ],
         help="Command to run",
     )
+    parser.add_argument("command_args", nargs="*", help="Command-specific arguments.")
     parser.add_argument("--plan-only", action="store_true", help="Only print the manual smoke-test plan.")
     parser.add_argument(
         "--yes",
@@ -54,6 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--dry-run", action="store_true", help="Force dry-run behavior for auto-reply commands.")
     parser.add_argument("--once", action="store_true", help="Run one detection pass and exit.")
+    parser.add_argument("--scroll", action="store_true", help="Enable explicit unread chat-list scroll scan for this run.")
     parser.add_argument(
         "--delay-minutes",
         type=float,
@@ -66,12 +70,14 @@ def build_parser() -> argparse.ArgumentParser:
 def run_command(
     command: str,
     *,
+    command_args: list[str] | None = None,
     plan_only: bool = False,
     assume_yes: bool = False,
     contact: str | None = None,
     force_send: bool = False,
     dry_run: bool = False,
     once: bool = False,
+    scroll: bool = False,
     delay_minutes: float | None = None,
 ) -> int:
     try:
@@ -99,9 +105,15 @@ def run_command(
         auto_reply = dict(config.get("auto_reply", {}))
         auto_reply["delay_minutes"] = float(delay_minutes)
         config["auto_reply"] = auto_reply
+    if scroll:
+        config = dict(config)
+        unread_scan = dict(config.get("unread_scan", {}))
+        unread_scan["enable_scroll_scan"] = True
+        config["unread_scan"] = unread_scan
 
     logger = setup_logger(log_file=config["log_file"])
     logger.info("Running command: %s", command)
+    command_args = command_args or []
 
     if command == "check":
         results = run_environment_checks()
@@ -173,6 +185,33 @@ def run_command(
         print_auto_reply_plan(config)
         return 0
 
+    if command == "owner-status":
+        from src.owner_status import get_owner_status, set_owner_status, toggle_owner_status
+
+        try:
+            if not command_args:
+                status = get_owner_status(config)
+            elif command_args[0] == "set" and len(command_args) == 2:
+                status = set_owner_status(config, command_args[1], updated_by="cli")
+            elif command_args[0] == "toggle" and len(command_args) == 1:
+                status = toggle_owner_status(config, updated_by="cli")
+            else:
+                print("Usage: owner-status [set online|set offline|toggle]")
+                return 2
+        except ValueError as exc:
+            print(f"Invalid owner status command: {exc}")
+            return 2
+
+        print(f"status: {status.status}")
+        print(f"updated_at: {status.updated_at.isoformat(timespec='seconds') if status.updated_at else 'none'}")
+        print(f"source: {status.source}")
+        return 0
+
+    if command == "status-menu":
+        from src.status_menu import run_status_menu
+
+        return run_status_menu(config)
+
     if command == "notification-check":
         from src.notification_listener import notification_check_once
 
@@ -190,6 +229,8 @@ def run_command(
         from src.unread_scanner import get_last_unread_scan_report, unread_scan_once
 
         events = unread_scan_once(config)
+        unread_scan = config.get("unread_scan", {}) if isinstance(config.get("unread_scan"), dict) else {}
+        print(f"scroll_scan_enabled: {unread_scan.get('enable_scroll_scan', False)}")
         report = get_last_unread_scan_report()
         if report:
             print(f"screenshot_path: {report.screenshot_path}")
@@ -283,7 +324,9 @@ def main(argv: list[str] | None = None) -> int:
         force_send=args.force_send,
         dry_run=args.dry_run,
         once=args.once,
+        scroll=args.scroll,
         delay_minutes=args.delay_minutes,
+        command_args=args.command_args,
     )
 
 

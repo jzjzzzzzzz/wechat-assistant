@@ -7,3 +7,4 @@ pillow
 opencv-python
 easyocr
 pytest
+rumps

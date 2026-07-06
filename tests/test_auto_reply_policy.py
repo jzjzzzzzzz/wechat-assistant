@@ -24,17 +24,23 @@ def make_event(**overrides):
     return AutoReplyEvent(**values)
 
 
-def make_config(**auto_reply_overrides):
+def make_config(owner_status="offline", owner_overrides=None, **auto_reply_overrides):
     config = load_config()
     config = dict(config)
     auto_reply = dict(config["auto_reply"])
     auto_reply.update(auto_reply_overrides)
     config["auto_reply"] = auto_reply
+    owner = dict(config.get("owner", {}))
+    owner.update(owner_overrides or {})
+    config["owner"] = owner
+    config["owner_status"] = owner_status
     return config
 
 
 def test_delay_minutes_keeps_event_pending_before_window_expires():
-    policy = AutoReplyPolicy(make_config(delay_minutes=5))
+    policy = AutoReplyPolicy(
+        make_config(delay_minutes=5, owner_overrides={"offline_reply_immediate": False})
+    )
 
     event = policy.evaluate(make_event(), now=BASE_TIME + timedelta(minutes=4, seconds=59))
 
@@ -43,9 +49,28 @@ def test_delay_minutes_keeps_event_pending_before_window_expires():
 
 
 def test_event_becomes_ready_after_delay_minutes():
-    policy = AutoReplyPolicy(make_config(delay_minutes=5))
+    policy = AutoReplyPolicy(
+        make_config(delay_minutes=5, owner_overrides={"offline_reply_immediate": False})
+    )
 
     event = policy.evaluate(make_event(), now=BASE_TIME + timedelta(minutes=5))
+
+    assert event.status == "ready_for_reply"
+
+
+def test_online_owner_ignores_candidate_with_owner_online_reason():
+    policy = AutoReplyPolicy(make_config(owner_status="online", delay_minutes=0))
+
+    event = policy.evaluate(make_event(), now=BASE_TIME)
+
+    assert event.status == "ignored"
+    assert event.reason == "owner_online"
+
+
+def test_offline_owner_replies_immediately_without_delay():
+    policy = AutoReplyPolicy(make_config(owner_status="offline", delay_minutes=5))
+
+    event = policy.evaluate(make_event(first_seen_at=BASE_TIME), now=BASE_TIME)
 
     assert event.status == "ready_for_reply"
 

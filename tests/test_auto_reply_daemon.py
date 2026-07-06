@@ -24,7 +24,7 @@ def make_event(sender="Alice", first_seen_at=None):
     )
 
 
-def make_config(tmp_path=None, **auto_reply_overrides):
+def make_config(tmp_path=None, owner_status_default="offline", owner_overrides=None, **auto_reply_overrides):
     auto_reply = {
         "enabled": False,
         "dry_run": True,
@@ -47,6 +47,12 @@ def make_config(tmp_path=None, **auto_reply_overrides):
         "log_file": "logs/app.log",
         "wechat_app_name": "WeChat",
         "database_path": database_path,
+        "owner": {
+            "status_default": owner_status_default,
+            "offline_reply_immediate": True,
+            "status_menu_enabled": True,
+            **(owner_overrides or {}),
+        },
         "auto_reply": auto_reply,
     }
 
@@ -65,6 +71,23 @@ def test_run_once_exits_cleanly_and_runs_both_detectors(tmp_path):
     assert calls == ["notification", "unread"]
     assert len(events) == 1
     assert events[0].status == "ready_for_reply"
+
+
+def test_online_owner_detects_but_does_not_prepare_reply(tmp_path):
+    calls = []
+    daemon = AutoReplyDaemon(
+        make_config(tmp_path, owner_status_default="online", delay_minutes=0),
+        notification_detector=lambda config: calls.append("notification") or [make_event()],
+        unread_scanner=lambda config: calls.append("unread") or [],
+        now_func=lambda: BASE_TIME,
+    )
+
+    events = daemon.run_once()
+
+    assert calls == ["notification", "unread"]
+    assert len(events) == 1
+    assert events[0].status == "ignored"
+    assert events[0].reason == "owner_online"
 
 
 def test_dry_run_never_calls_real_sender(tmp_path, monkeypatch):
@@ -121,7 +144,7 @@ def test_cli_auto_reply_daemon_requires_dry_run(tmp_path):
 
 
 def test_persistent_first_seen_does_not_reset_before_delay(tmp_path):
-    config = make_config(tmp_path, delay_minutes=5)
+    config = make_config(tmp_path, owner_overrides={"offline_reply_immediate": False}, delay_minutes=5)
     store = AutoReplyStateStore(config["database_path"])
     detector = lambda cfg: [make_event(first_seen_at=BASE_TIME)]
 
@@ -152,7 +175,7 @@ def test_persistent_first_seen_does_not_reset_before_delay(tmp_path):
 
 
 def test_candidate_becomes_ready_after_delay_and_marks_dry_run_replied(tmp_path):
-    config = make_config(tmp_path, delay_minutes=5)
+    config = make_config(tmp_path, owner_overrides={"offline_reply_immediate": False}, delay_minutes=5)
     store = AutoReplyStateStore(config["database_path"])
     detector = lambda cfg: [make_event(first_seen_at=BASE_TIME - timedelta(minutes=5))]
 
@@ -175,7 +198,7 @@ def test_candidate_becomes_ready_after_delay_and_marks_dry_run_replied(tmp_path)
 
 
 def test_pending_candidate_remains_pending_before_delay(tmp_path):
-    config = make_config(tmp_path, delay_minutes=5)
+    config = make_config(tmp_path, owner_overrides={"offline_reply_immediate": False}, delay_minutes=5)
     store = AutoReplyStateStore(config["database_path"])
     detector = lambda cfg: [make_event(first_seen_at=BASE_TIME)]
 

@@ -17,6 +17,7 @@ from src.auto_reply_policy import (
 )
 from src.auto_reply_state import AutoReplyStateStore
 from src.notification_listener import detect_notification_events
+from src.owner_status import get_owner_status, owner_config
 from src.unread_scanner import scan_unread_events
 
 
@@ -155,11 +156,20 @@ class AutoReplyDaemon:
         return planned
 
     def run_once(self) -> list[AutoReplyEvent]:
+        owner_record = get_owner_status(self.config)
+        self.config["owner_status"] = owner_record.status
+        self.policy = AutoReplyPolicy(self.config, now_func=self.now_func)
         LOGGER.info(
-            "Auto-reply dry-run pass starting. enabled=%s dry_run=%s allow_real_send=%s",
+            "Auto-reply dry-run pass starting. enabled=%s dry_run=%s allow_real_send=%s owner_status=%s",
             self.auto_reply_config.get("enabled"),
             self.auto_reply_config.get("dry_run"),
             self.config.get("allow_real_send", False),
+            owner_record.status,
+        )
+        LOGGER.info(
+            "Owner status source=%s updated_at=%s",
+            owner_record.source,
+            owner_record.updated_at.isoformat(timespec="seconds") if owner_record.updated_at else "none",
         )
         LOGGER.info("Auto-reply state database: %s", self.database_path)
         detected = self.detection_pass()
@@ -220,6 +230,14 @@ class AutoReplyDaemon:
 
 def print_auto_reply_plan(config: dict[str, Any]) -> None:
     ar = auto_reply_config(config)
+    owner_record = get_owner_status(config)
+    owner = owner_config(config)
+    unread = config.get("unread_scan", {}) if isinstance(config.get("unread_scan"), dict) else {}
+    auto_reply_allowed = (
+        owner_record.status == "offline"
+        and bool(ar.get("dry_run", True))
+        and not bool(config.get("allow_real_send", False))
+    )
     print("Auto-reply config:")
     for key in (
         "enabled",
@@ -236,9 +254,19 @@ def print_auto_reply_plan(config: dict[str, Any]) -> None:
     print("Detection priority:")
     for source in ar.get("detection_priority", []):
         print(f"  - {source}")
+    print("Owner status:")
+    print(f"  status: {owner_record.status}")
+    print(
+        "  updated_at: "
+        f"{owner_record.updated_at.isoformat(timespec='seconds') if owner_record.updated_at else 'none'}"
+    )
+    print(f"  source: {owner_record.source}")
+    print(f"  offline_reply_immediate: {owner.get('offline_reply_immediate', True)}")
     print("Safety status:")
     print(f"  dry_run: {ar.get('dry_run', True)}")
     print(f"  allow_real_send: {config.get('allow_real_send', False)}")
+    print(f"  scroll_scan_default: {unread.get('enable_scroll_scan', False)}")
+    print(f"  auto_reply_currently_allowed: {auto_reply_allowed}")
     print(f"State storage: {config.get('database_path', 'data/wechat_assistant.sqlite3')} (table auto_reply_state)")
     print("What will be monitored:")
     print("  - macOS WeChat notification area via screenshot/OCR")

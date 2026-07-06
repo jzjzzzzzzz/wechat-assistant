@@ -38,6 +38,17 @@ def make_config(**background_overrides):
         "screenshot_dir": "screenshots",
         "ocr_confidence_threshold": 0.3,
         "background_scan": background_scan,
+        "unread_scan": {
+            "enable_scroll_scan": False,
+            "max_scroll_pages": 5,
+            "scroll_amount": -5,
+            "scroll_pause_seconds": 0.0,
+            "restore_position_after_scan": True,
+            "stop_on_first_private_candidate": True,
+            "ignore_public_accounts": True,
+            "ignore_service_accounts": True,
+            "ignore_group_chats": True,
+        },
         "auto_reply": {
             "min_ocr_confidence": 0.65,
             "blocklist_keywords": ["群", "群聊", "服务通知", "订阅号", "公众号", "微信支付", "微信团队"],
@@ -434,3 +445,59 @@ def test_activation_fallback_runs_only_when_explicitly_enabled():
     assert calls == ["activate", "capture"]
     assert len(events) == 1
     assert events[0].sender == "Alice"
+
+
+def test_scroll_scan_disabled_by_default():
+    scroll_calls = []
+
+    events = scan_unread_events(
+        make_config(),
+        locator_func=lambda **kwargs: make_locator_result(),
+        window_capture_func=lambda window, config: WindowCaptureResult(True, "wechat.png", "visible_region", "ok"),
+        verifier_factory=lambda **kwargs: FakeVerifier(ok=True),
+        ocr_func=lambda path, **kwargs: [],
+        badge_detector_func=lambda path: [],
+        scroll_func=lambda *args, **kwargs: scroll_calls.append((args, kwargs)),
+        sleep_func=lambda seconds: None,
+    )
+
+    assert events == []
+    assert scroll_calls == []
+
+
+def test_scroll_scan_safe_fails_without_chat_list_region():
+    config = make_config()
+    config["unread_scan"] = dict(config["unread_scan"], enable_scroll_scan=True)
+    scroll_calls = []
+
+    events = scan_unread_events(
+        config,
+        locator_func=lambda **kwargs: WindowLocatorResult(False, [], "WeChat window not found."),
+        scroll_func=lambda *args, **kwargs: scroll_calls.append((args, kwargs)),
+        sleep_func=lambda seconds: None,
+    )
+
+    assert events == []
+    assert scroll_calls == []
+
+
+def test_scroll_scan_runs_only_when_explicitly_enabled():
+    config = make_config()
+    config["unread_scan"] = dict(config["unread_scan"], enable_scroll_scan=True, max_scroll_pages=1)
+    scroll_calls = []
+
+    events = scan_unread_events(
+        config,
+        locator_func=lambda **kwargs: make_locator_result(),
+        window_capture_func=lambda window, config: WindowCaptureResult(True, "wechat.png", "visible_region", "ok"),
+        verifier_factory=lambda **kwargs: FakeVerifier(ok=True),
+        ocr_func=lambda path, **kwargs: [],
+        badge_detector_func=lambda path: [],
+        scroll_func=lambda *args, **kwargs: scroll_calls.append((args, kwargs)),
+        sleep_func=lambda seconds: None,
+    )
+
+    assert events == []
+    assert len(scroll_calls) == 2
+    assert scroll_calls[0][0][0] == -5
+    assert scroll_calls[1][0][0] == 5
