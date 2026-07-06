@@ -156,6 +156,21 @@ def test_window_capture_coordinate_chat_badge_is_accepted_but_nearby_sidebar_bad
     assert any(item.x == 67 and item.reason == "left_sidebar_or_avatar_region" for item in diagnostics.rejected_contours)
 
 
+def test_tiny_text_like_red_fragments_are_rejected(tmp_path):
+    image_path = tmp_path / "wechat_fragments.png"
+    image = Image.new("RGB", (1760, 1280), "white")
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((120, 0, 570, 1280), fill=(246, 246, 246))
+    draw.ellipse((160, 529, 167, 540), fill=(235, 75, 67))
+    draw.ellipse((177, 793, 185, 802), fill=(235, 75, 67))
+    image.save(image_path)
+
+    diagnostics = detect_unread_badges_with_diagnostics(image_path)
+
+    assert diagnostics.badges == []
+    assert any(item.reason in {"likely_text_fragment", "low_circularity"} for item in diagnostics.rejected_contours)
+
+
 def test_associate_badges_with_nearest_ocr_chat_name_row():
     badges = [UnreadBadge(305, 118, 26, 26, 0.8)]
     ocr_items = [
@@ -347,8 +362,11 @@ def test_unread_scanner_filters_blocklisted_badge_candidate():
         ocr_func=lambda path, **kwargs: items,
         badge_detector_func=lambda path: [UnreadBadge(305, 118, 26, 26, 0.82)],
     )
+    report = get_last_unread_scan_report()
 
     assert events == []
+    assert report is not None
+    assert any("blocklisted_sender" in reason for reason in report.ignored_reasons)
 
 
 def test_unread_scanner_filters_english_public_account_badge_candidate():

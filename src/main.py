@@ -54,6 +54,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--dry-run", action="store_true", help="Force dry-run behavior for auto-reply commands.")
     parser.add_argument("--once", action="store_true", help="Run one detection pass and exit.")
+    parser.add_argument(
+        "--delay-minutes",
+        type=float,
+        default=None,
+        help="Override auto-reply delay minutes for this run only.",
+    )
     return parser
 
 
@@ -66,6 +72,7 @@ def run_command(
     force_send: bool = False,
     dry_run: bool = False,
     once: bool = False,
+    delay_minutes: float | None = None,
 ) -> int:
     try:
         config = load_config()
@@ -86,6 +93,11 @@ def run_command(
         config["allow_real_send"] = False
         auto_reply = dict(config.get("auto_reply", {}))
         auto_reply["dry_run"] = True
+        config["auto_reply"] = auto_reply
+    if delay_minutes is not None:
+        config = dict(config)
+        auto_reply = dict(config.get("auto_reply", {}))
+        auto_reply["delay_minutes"] = float(delay_minutes)
         config["auto_reply"] = auto_reply
 
     logger = setup_logger(log_file=config["log_file"])
@@ -245,8 +257,13 @@ def run_command(
             return 2
         daemon = AutoReplyDaemon(config)
         if once:
-            events = daemon.run_once()
-            print_planned_actions(events, daemon.config)
+            try:
+                events = daemon.run_once()
+                print_planned_actions(events, daemon.config)
+            finally:
+                state_store = getattr(daemon, "state_store", None)
+                if state_store is not None:
+                    state_store.close()
             return 0
         daemon.run_forever()
         return 0
@@ -266,6 +283,7 @@ def main(argv: list[str] | None = None) -> int:
         force_send=args.force_send,
         dry_run=args.dry_run,
         once=args.once,
+        delay_minutes=args.delay_minutes,
     )
 
 

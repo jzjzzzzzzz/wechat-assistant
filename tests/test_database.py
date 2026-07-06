@@ -15,6 +15,7 @@ def test_initialize_database_creates_project_tables(tmp_path: Path) -> None:
             "birthday_tasks",
             "message_templates",
             "audit_events",
+            "auto_reply_state",
         }
 
 

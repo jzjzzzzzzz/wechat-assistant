@@ -15,6 +15,7 @@ from src.auto_reply_policy import (
     dry_run_action_text,
     validate_auto_reply_config,
 )
+from src.auto_reply_state import AutoReplyStateStore
 from src.notification_listener import detect_notification_events
 from src.unread_scanner import scan_unread_events
 
@@ -44,6 +45,7 @@ class AutoReplyDaemon:
         unread_scanner: Detector = scan_unread_events,
         sleep_func: Callable[[float], None] = time.sleep,
         now_func: Callable[[], datetime] = datetime.now,
+        state_store: AutoReplyStateStore | None = None,
     ) -> None:
         self.config = _force_dry_run(config)
         self.auto_reply_config = validate_auto_reply_config(self.config)
@@ -52,6 +54,8 @@ class AutoReplyDaemon:
         self.sleep_func = sleep_func
         self.now_func = now_func
         self.policy = AutoReplyPolicy(self.config, now_func=now_func)
+        self.state_store = state_store or AutoReplyStateStore(self.config.get("database_path"))
+        self.database_path = str(self.state_store.database_path)
         self._events_by_key: dict[tuple[str, str], AutoReplyEvent] = {}
 
     def _merge_seen(self, events: list[AutoReplyEvent]) -> list[AutoReplyEvent]:
@@ -92,6 +96,64 @@ class AutoReplyDaemon:
                 LOGGER.error("Auto-reply detection source=%s failed safely: %s", source, exc)
         return self._merge_seen(events)
 
+    def _merge_sources_by_sender(self, events: list[AutoReplyEvent]) -> list[AutoReplyEvent]:
+        priority = {str(source): index for index, source in enumerate(self.auto_reply_config.get("detection_priority", []))}
+        grouped: dict[str, list[AutoReplyEvent]] = {}
+        for event in events:
+            grouped.setdefault(event.sender, []).append(event)
+
+        merged_events: list[AutoReplyEvent] = []
+        for sender, items in grouped.items():
+            ordered = sorted(
+                items,
+                key=lambda event: (
+                    priority.get(event.source, len(priority)),
+                    -event.confidence,
+                    event.detected_at,
+                ),
+            )
+            best = ordered[0]
+            first_seen_at = min(item.first_seen_at for item in items)
+            last_seen_at = max(item.last_seen_at for item in items)
+            last_replied_at = max(
+                (item.last_replied_at for item in items if item.last_replied_at is not None),
+                default=None,
+            )
+            merged_events.append(
+                replace(
+                    best,
+                    first_seen_at=first_seen_at,
+                    last_seen_at=last_seen_at,
+                    last_replied_at=last_replied_at,
+                )
+            )
+        return sorted(merged_events, key=lambda event: (event.detected_at, event.sender))
+
+    def _persist_and_plan(self, events: list[AutoReplyEvent]) -> list[AutoReplyEvent]:
+        now = self.now_func()
+        stale_after_minutes = float(self.auto_reply_config.get("state_stale_minutes", 1440))
+        cooldown_minutes = float(self.auto_reply_config.get("cooldown_minutes", 60))
+        merged_events: list[AutoReplyEvent] = []
+        for event in events:
+            merged = self.state_store.merge_detected_event(
+                event,
+                now=now,
+                cooldown_minutes=cooldown_minutes,
+                stale_after_minutes=stale_after_minutes,
+            )
+            merged_events.append(merged)
+        merged_events = self._merge_sources_by_sender(merged_events)
+        planned = self.policy.plan_actions(merged_events, now=now)
+        for event in planned:
+            self.state_store.upsert_event_state(
+                event,
+                now=now,
+                cooldown_minutes=cooldown_minutes,
+                stale_after_minutes=stale_after_minutes,
+            )
+        self.state_store.mark_stale_rows(now=now, stale_after_minutes=stale_after_minutes)
+        return planned
+
     def run_once(self) -> list[AutoReplyEvent]:
         LOGGER.info(
             "Auto-reply dry-run pass starting. enabled=%s dry_run=%s allow_real_send=%s",
@@ -99,9 +161,35 @@ class AutoReplyDaemon:
             self.auto_reply_config.get("dry_run"),
             self.config.get("allow_real_send", False),
         )
-        events = self.detection_pass()
-        planned = self.policy.plan_actions(events, now=self.now_func())
+        LOGGER.info("Auto-reply state database: %s", self.database_path)
+        detected = self.detection_pass()
+        LOGGER.info("Auto-reply detected candidate count=%s", len(detected))
+        planned = self._persist_and_plan(detected)
+        pending_count = sum(1 for event in planned if event.status == "pending")
+        ready_count = sum(1 for event in planned if event.status == "ready_for_reply")
+        ignored_count = sum(1 for event in planned if event.status == "ignored")
+        would_auto_reply = ready_count > 0
+        LOGGER.info(
+            "Auto-reply planning summary detected=%s pending=%s ready_for_reply=%s ignored=%s",
+            len(detected),
+            pending_count,
+            ready_count,
+            ignored_count,
+        )
+        LOGGER.info("Auto-reply WOULD AUTO REPLY emitted=%s", would_auto_reply)
         for event in planned:
+            elapsed_seconds = max(0.0, (event.detected_at - event.first_seen_at).total_seconds())
+            delay_seconds = float(self.auto_reply_config.get("delay_minutes", 5)) * 60.0
+            LOGGER.info(
+                "Auto-reply state sender=%s source=%s status=%s first_seen_at=%s elapsed_seconds=%.0f delay_seconds=%.0f reason=%s",
+                event.sender,
+                event.source,
+                event.status,
+                event.first_seen_at.isoformat(timespec="seconds"),
+                elapsed_seconds,
+                delay_seconds,
+                event.reason,
+            )
             if event.status == "ready_for_reply":
                 LOGGER.info(
                     "WOULD AUTO REPLY Target=%s Message=%s",
@@ -126,6 +214,8 @@ class AutoReplyDaemon:
                 self.sleep_func(interval)
         except KeyboardInterrupt:
             LOGGER.info("Auto-reply daemon stopped by Ctrl+C.")
+        finally:
+            self.state_store.close()
 
 
 def print_auto_reply_plan(config: dict[str, Any]) -> None:
@@ -137,6 +227,7 @@ def print_auto_reply_plan(config: dict[str, Any]) -> None:
         "delay_minutes",
         "poll_interval_seconds",
         "cooldown_minutes",
+        "state_stale_minutes",
         "private_only",
         "reply_message",
         "min_ocr_confidence",
@@ -148,6 +239,7 @@ def print_auto_reply_plan(config: dict[str, Any]) -> None:
     print("Safety status:")
     print(f"  dry_run: {ar.get('dry_run', True)}")
     print(f"  allow_real_send: {config.get('allow_real_send', False)}")
+    print(f"State storage: {config.get('database_path', 'data/wechat_assistant.sqlite3')} (table auto_reply_state)")
     print("What will be monitored:")
     print("  - macOS WeChat notification area via screenshot/OCR")
     print("  - WeChat left chat list unread indicators as fallback")
@@ -171,7 +263,10 @@ def run_auto_reply_once(
         notification_detector=notification_detector,
         unread_scanner=unread_scanner,
     )
-    return daemon.run_once()
+    try:
+        return daemon.run_once()
+    finally:
+        daemon.state_store.close()
 
 
 def print_planned_actions(events: list[AutoReplyEvent], config: dict[str, Any]) -> None:

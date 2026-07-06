@@ -17,6 +17,7 @@ DEFAULT_AUTO_REPLY_CONFIG: dict[str, Any] = {
     "delay_minutes": 5,
     "poll_interval_seconds": 5,
     "cooldown_minutes": 60,
+    "state_stale_minutes": 1440,
     "private_only": True,
     "reply_message": "号主不在线～ AI自动回复的",
     "detection_priority": ["notification_ocr", "unread_chat_scan"],
@@ -43,6 +44,7 @@ class AutoReplyEvent:
     first_seen_at: datetime
     last_seen_at: datetime
     confidence: float
+    last_replied_at: datetime | None = None
     status: AutoReplyStatus = "pending"
     reason: str | None = None
     is_private_candidate: bool = True
@@ -68,6 +70,7 @@ def validate_auto_reply_config(config: dict[str, Any]) -> dict[str, Any]:
         "delay_minutes": (int, float),
         "poll_interval_seconds": (int, float),
         "cooldown_minutes": (int, float),
+        "state_stale_minutes": (int, float),
         "private_only": bool,
         "reply_message": str,
         "detection_priority": list,
@@ -89,6 +92,7 @@ def validate_auto_reply_config(config: dict[str, Any]) -> dict[str, Any]:
     ar["delay_minutes"] = float(ar["delay_minutes"])
     ar["poll_interval_seconds"] = float(ar["poll_interval_seconds"])
     ar["cooldown_minutes"] = float(ar["cooldown_minutes"])
+    ar["state_stale_minutes"] = float(ar["state_stale_minutes"])
     ar["min_ocr_confidence"] = float(ar["min_ocr_confidence"])
     if ar["delay_minutes"] < 0:
         raise ValueError("Invalid config key 'auto_reply.delay_minutes': must be >= 0")
@@ -96,6 +100,8 @@ def validate_auto_reply_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Invalid config key 'auto_reply.poll_interval_seconds': must be > 0")
     if ar["cooldown_minutes"] < 0:
         raise ValueError("Invalid config key 'auto_reply.cooldown_minutes': must be >= 0")
+    if ar["state_stale_minutes"] < 0:
+        raise ValueError("Invalid config key 'auto_reply.state_stale_minutes': must be >= 0")
     if not 0.0 <= ar["min_ocr_confidence"] <= 1.0:
         raise ValueError("Invalid config key 'auto_reply.min_ocr_confidence': must be between 0 and 1")
     return ar
@@ -137,7 +143,7 @@ class AutoReplyPolicy:
             return replace(event, status="pending", reason="waiting for owner response window")
 
         cooldown = timedelta(minutes=float(self.config["cooldown_minutes"]))
-        last_prepared = self._last_prepared_by_sender.get(event.sender)
+        last_prepared = event.last_replied_at or self._last_prepared_by_sender.get(event.sender)
         if last_prepared is not None and current_time - last_prepared < cooldown:
             return replace(event, status="ignored", reason="cooldown active for sender")
 

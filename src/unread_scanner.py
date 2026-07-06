@@ -288,6 +288,24 @@ def _chat_list_bounds(width: int, height: int) -> tuple[int, int, int, int]:
     return left, top, max(left + 1, right), bottom
 
 
+def _component_circularity(component_mask: Any) -> float:
+    try:
+        import cv2  # type: ignore
+        import numpy as np  # type: ignore
+
+        contours, _hierarchy = cv2.findContours(component_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            return 0.0
+        contour = max(contours, key=cv2.contourArea)
+        perimeter = float(cv2.arcLength(contour, True))
+        if perimeter <= 0:
+            return 0.0
+        area = float(cv2.countNonZero(component_mask))
+        return float((4.0 * np.pi * area) / (perimeter * perimeter))
+    except Exception:
+        return 0.0
+
+
 def detect_unread_badges_with_diagnostics(image_path: str | Path) -> BadgeDetectionDiagnostics:
     """Detect red unread dots/numeric badges and return debug evidence."""
     try:
@@ -342,6 +360,8 @@ def detect_unread_badges_with_diagnostics(image_path: str | Path) -> BadgeDetect
     max_side = max(18, int(min(width, height) * 0.055))
     for label in range(1, count):
         x, y, component_width, component_height, area = [int(value) for value in stats[label]]
+        component_mask = mask[y : y + component_height, x : x + component_width]
+        circularity = _component_circularity(component_mask)
         reason: str | None = None
         if component_width < min_side or component_height < min_side:
             reason = "too_small"
@@ -353,8 +373,12 @@ def detect_unread_badges_with_diagnostics(image_path: str | Path) -> BadgeDetect
         if reason is None and not 0.45 <= aspect <= 2.20:
             reason = "bad_aspect_ratio"
         fill_ratio = area / float(component_width * component_height)
+        if reason is None and (component_width < 20 or component_height < 20) and area < 400:
+            reason = "likely_text_fragment"
         if reason is None and fill_ratio < 0.22:
             reason = "fill_ratio_too_low"
+        if reason is None and circularity < 0.32:
+            reason = "low_circularity"
         cx = x + component_width // 2
         cy = y + component_height // 2
         if reason is None and cy < int(height * 0.05):
@@ -362,7 +386,7 @@ def detect_unread_badges_with_diagnostics(image_path: str | Path) -> BadgeDetect
         if reason is None and x < badge_x_min:
             reason = "left_sidebar_or_avatar_region"
         if reason is None and cx > badge_x_max:
-            reason = "outside_chat_list_region"
+            reason = "outside_chat_list"
         if reason is None:
             confidence = min(1.0, 0.55 + fill_ratio * 0.35)
             badges.append(
@@ -492,7 +516,7 @@ def segment_chat_list_rows(image_path: str | Path) -> list[ChatListRow]:
     x = int(width * 0.01)
     panel_right = int(width * 0.43)
     row_width = max(1, panel_right - x)
-    y_start = int(height * 0.11)
+    y_start = int(height * 0.08)
     row_height = max(54, min(120, int(height * 0.085)))
     rows: list[ChatListRow] = []
     index = 0
@@ -575,6 +599,34 @@ def _text_items_in_row(row: ChatListRow, ocr_items: list[dict[str, Any]]) -> lis
     return items
 
 
+def _sender_items_in_row(row: ChatListRow, ocr_items: list[dict[str, Any]]) -> list[tuple[str, float, float, float]]:
+    items: list[tuple[str, float, float, float]] = []
+    sender_right = row.x + int(row.width * 0.60)
+    sender_bottom = row.y + int(row.height * 0.62)
+    for item in ocr_items:
+        text = str(item.get("text", "")).strip()
+        if not _is_possible_chat_name(text):
+            continue
+        bounds = _bbox_bounds(item.get("bbox"))
+        center = _bbox_center(item.get("bbox"))
+        if bounds is None or center is None:
+            continue
+        x1, y1, x2, y2 = bounds
+        cx, cy = center
+        if x1 > sender_right or y1 > sender_bottom:
+            continue
+        if not row.contains_point(int(cx), int(cy)):
+            continue
+        confidence = float(item.get("confidence", 0.0))
+        top_line_bonus = max(0.0, 1.0 - max(0.0, (cy - row.y) / float(row.height or 1)))
+        left_bonus = max(0.0, 1.0 - max(0.0, (cx - row.x) / float(row.width or 1)))
+        text_bonus = min(0.2, len(text) * 0.01)
+        score = confidence + 0.15 * top_line_bonus + 0.1 * left_bonus + text_bonus
+        items.append((text, confidence, score, cx))
+    items.sort(key=lambda value: (-value[2], value[3]))
+    return items
+
+
 def associate_badges_with_rows_diagnostics(
     badges: list[UnreadBadge],
     rows: list[ChatListRow],
@@ -595,7 +647,7 @@ def associate_badges_with_rows_diagnostics(
                     IgnoredBadgeCandidate(
                         badge=badge,
                         row=row,
-                        reason="badge_not_close_to_any_row",
+                        reason="not_row_aligned",
                         evidence=(
                             f"nearest_row={row.index} row_bounds=({row.x},{row.y},{row.width},{row.height}) "
                             f"badge_bounds=({badge.x},{badge.y},{badge.width},{badge.height})"
@@ -624,8 +676,8 @@ def associate_badges_with_rows_diagnostics(
                 )
             )
             continue
-        row_text_items = _text_items_in_row(row, ocr_items)
-        if not row_text_items:
+        row_sender_items = _sender_items_in_row(row, ocr_items)
+        if not row_sender_items:
             ignored.append(
                 IgnoredBadgeCandidate(
                     badge=badge,
@@ -639,8 +691,7 @@ def associate_badges_with_rows_diagnostics(
             )
             continue
 
-        # Prefer the left-most plausible row text; it is normally the chat name.
-        sender, sender_confidence, _sender_x = row_text_items[0]
+        sender, sender_confidence, _sender_score, _sender_x = row_sender_items[0]
         count = badge.count if badge.count is not None else _badge_count_from_ocr(badge, ocr_items)
         marker = f"red_unread_badge:{count}" if count is not None else "red_unread_badge"
         confidence = min(sender_confidence, badge.confidence)
@@ -875,6 +926,10 @@ def _events_from_ocr_items(
         if reason:
             LOGGER.info("Unread scan ignored %r: %s", sender, reason)
             if ignored_reasons_out is not None:
+                if "blocklist keyword" in reason:
+                    ignored_reasons_out.append(f"ignored_sender:{sender}:blocklisted_sender")
+                elif reason == "unknown sender":
+                    ignored_reasons_out.append(f"ignored_sender:{sender}:unknown_sender")
                 ignored_reasons_out.append(f"ignored_sender:{sender}:{reason}")
             continue
         confidence = min(1.0, confidence * source_confidence_multiplier)

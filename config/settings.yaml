@@ -30,6 +30,7 @@ auto_reply:
   delay_minutes: 5
   poll_interval_seconds: 5
   cooldown_minutes: 60
+  state_stale_minutes: 1440
   private_only: true
   reply_message: "号主不在线～ AI自动回复的"
   detection_priority:

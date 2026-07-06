@@ -60,8 +60,30 @@ SCHEMA_STATEMENTS = [
         created_at TEXT NOT NULL
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS auto_reply_state (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sender TEXT NOT NULL,
+        source TEXT NOT NULL,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        last_status TEXT NOT NULL,
+        last_reason TEXT,
+        last_preview TEXT,
+        confidence REAL NOT NULL DEFAULT 0.0,
+        replied_dry_run INTEGER NOT NULL DEFAULT 0,
+        real_sent INTEGER NOT NULL DEFAULT 0,
+        dry_run_replied_at TEXT,
+        real_sent_at TEXT,
+        stale_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(sender, source)
+    )
+    """,
     "CREATE INDEX IF NOT EXISTS idx_birthday_tasks_birthday ON birthday_tasks (birthday)",
     "CREATE INDEX IF NOT EXISTS idx_audit_events_created_at ON audit_events (created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_auto_reply_state_sender_source ON auto_reply_state (sender, source)",
 ]
 
 

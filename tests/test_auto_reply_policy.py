@@ -105,6 +105,7 @@ def test_config_defaults_include_safe_auto_reply_values():
     assert ar["dry_run"] is True
     assert ar["delay_minutes"] == 5.0
     assert ar["cooldown_minutes"] == 60.0
+    assert ar["state_stale_minutes"] == 1440.0
     assert ar["private_only"] is True
     assert ar["reply_message"] == "号主不在线～ AI自动回复的"
     assert config["allow_real_send"] is False
