@@ -34,6 +34,8 @@ def build_parser() -> argparse.ArgumentParser:
             "auto-reply-state",
             "auto-reply-monitor",
             "monitor-report",
+            "runtime-status",
+            "runtime-stop-all",
             "private-whitelist",
             "sender-classify",
         ],
@@ -306,6 +308,17 @@ def run_command(
         from src.auto_reply_monitor import print_monitor_report
 
         return print_monitor_report(config)
+
+    if command == "runtime-status":
+        from src.runtime_manager import print_runtime_status
+
+        print_runtime_status(config)
+        return 0
+
+    if command == "runtime-stop-all":
+        from src.runtime_manager import print_stop_all_results
+
+        return print_stop_all_results()
 
     if command == "notification-check":
         from src.notification_listener import notification_check_once

@@ -10,8 +10,10 @@ screenshots/*.jpeg
 screenshots/**/*.png
 screenshots/**/*.jpg
 screenshots/**/*.jpeg
+screenshots/background_scan/*
 logs/*.log
 logs/*.jsonl
+run/*.pid
 data/*.tmp
 data/*.sqlite3
 data/*.sqlite3-*
