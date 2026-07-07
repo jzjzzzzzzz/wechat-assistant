@@ -186,6 +186,22 @@ def test_english_group_name_with_count_is_group():
     assert classification.reason == "sender looks like group chat: member_count_suffix"
 
 
+def test_group_name_with_number_and_words_inside_parentheses_is_group():
+    """Study Group(12 members) — bracket contains a number → group."""
+    classification = classify_chat_sender("Study Group(12 members)", auto_reply_config(make_config()))
+    assert classification.is_private is False
+    assert classification.category == "group_candidate"
+    assert classification.reason == "sender looks like group chat: member_count_suffix"
+
+
+def test_group_name_with_chinese_words_and_number_inside_parentheses_is_group():
+    """项目组（第5组）— bracket contains a number → group."""
+    classification = classify_chat_sender("项目组（第5组）", auto_reply_config(make_config()))
+    assert classification.is_private is False
+    assert classification.category == "group_candidate"
+    assert classification.reason == "sender looks like group chat: member_count_suffix"
+
+
 def test_mixed_language_group_with_full_width_ren_is_group():
     """Family（8人）— mixed brackets → group."""
     classification = classify_chat_sender("Family（8人）", auto_reply_config(make_config()))

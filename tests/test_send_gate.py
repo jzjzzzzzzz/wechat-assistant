@@ -89,7 +89,9 @@ def test_system_status_unknown_blocks_all_senders():
     "项目组（5）",
     "项目组（5人）",
     "Study Group(12)",
+    "Study Group(12 members)",
     "Family（8人）",
+    "项目组（第5组）",
     "同学们(100)",
     "同学群",           # keyword-based
     "订阅号",           # non-private keyword

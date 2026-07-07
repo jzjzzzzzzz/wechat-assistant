@@ -98,7 +98,7 @@ def _text_contains_keyword(text: str, keyword: str) -> bool:
 
 
 def _looks_like_group_chat_name(sender: str) -> str | None:
-    if re.search(r"[\(（\[]\s*\d+\s*人?\s*[\)）\]]$", sender):
+    if re.search(r"[\(（\[][^()\[\]（）]*\d[^()\[\]（）]*[\)）\]]\s*$", sender):
         return "sender looks like group chat: member_count_suffix"
     if re.search(r".+\s*[、，]\s*.+", sender):
         return "sender looks like group chat: multi_participant_separator"

@@ -75,7 +75,7 @@ The policy ignores:
 - unknown senders
 - low-confidence OCR results
 - group chats and names matching configured blocklist keywords
-- sender names that look like group chats by member-count suffix, such as `项目组(5)`, `项目组（5）`, `项目组（5人）`, `Study Group(12)`, or `Family（8人）`
+- sender names ending with parentheses that contain a number, such as `项目组(5)`, `项目组（5）`, `项目组（5人）`, `Study Group(12)`, `Study Group(12 members)`, `项目组（第5组）`, or `Family（8人）`
 - senders outside the private chat whitelist
 - non-private candidates when `private_only` is true
 - repeat plans for the same sender inside `cooldown_minutes`

@@ -121,7 +121,7 @@ The policy decides whether a candidate is ignored, pending, or ready for reply p
 - `private_only` rejects non-private candidates.
 - `require_private_chat_whitelist` rejects senders outside `private_chat_whitelist` and `allowed_test_contacts`.
 - Group/system/public-account keywords are enforced before whitelist acceptance.
-- Sender names ending in member counts such as `项目组(5)`, `项目组（5）`, `项目组（5人）`, `Study Group(12)`, or `Family（8人）` are treated as group candidates before whitelist acceptance.
+- Sender names ending with parentheses that contain a number, such as `项目组(5)`, `项目组（5）`, `项目组（5人）`, `Study Group(12)`, `Study Group(12 members)`, `项目组（第5组）`, or `Family（8人）`, are treated as group candidates before whitelist acceptance.
 - Unknown senders are ignored.
 - Low OCR confidence is ignored.
 - Blocklist keywords are enforced.
