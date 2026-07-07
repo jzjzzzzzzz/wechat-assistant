@@ -255,6 +255,41 @@ def test_associate_badges_with_segmented_row_evidence():
     assert "row=1" in associations[0].evidence
 
 
+def test_real_layout_badge_prefers_sender_over_previous_row_preview(tmp_path):
+    image_path = tmp_path / "wechat_real_layout.png"
+    Image.new("RGB", (1760, 1280), "white").save(image_path)
+    rows = segment_chat_list_rows(image_path)
+    badge = UnreadBadge(199, 375, 32, 32, 0.82, count=1)
+    ocr_items = [
+        {
+            "text": "脑子坏了",
+            "confidence": 0.55,
+            "bbox": [[234, 306], [334, 306], [334, 336], [234, 336]],
+        },
+        {
+            "text": "爱",
+            "confidence": 0.996,
+            "bbox": [[234, 396], [266, 396], [266, 428], [234, 428]],
+        },
+        {
+            "text": "WeChat Assistant test mes。",
+            "confidence": 0.84,
+            "bbox": [[234, 436], [550, 436], [550, 464], [234, 464]],
+        },
+        {
+            "text": "11.32",
+            "confidence": 0.96,
+            "bbox": [[516, 398], [570, 398], [570, 422], [516, 422]],
+        },
+    ]
+
+    associations = associate_badges_with_rows([badge], rows, ocr_items)
+
+    assert len(associations) == 1
+    assert associations[0].sender == "爱"
+    assert associations[0].row.contains_point(*badge.center)
+
+
 def test_write_badge_debug_overlay_saves_row_level_evidence_image(tmp_path):
     image_path = tmp_path / "wechat.png"
     Image.new("RGB", (900, 700), "white").save(image_path)

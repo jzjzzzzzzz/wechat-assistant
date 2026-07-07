@@ -469,10 +469,22 @@ def print_planned_actions(events: list[AutoReplyEvent], config: dict[str, Any]) 
     if not events:
         print("No auto-reply candidates detected.")
         return
+    ar = config.get("auto_reply", {}) if isinstance(config.get("auto_reply"), dict) else {}
+    real_mode = (
+        not bool(config.get("dry_run", True))
+        and not bool(ar.get("dry_run", True))
+        and bool(config.get("allow_real_send", False))
+    )
+    reply_message = str(auto_reply_config(config).get("reply_message", "号主不在线～ AI自动回复的"))
     for event in events:
         print(
             f"[{event.status}] source={event.source} sender={event.sender} "
             f"confidence={event.confidence:.2f} reason={event.reason or ''}".rstrip()
         )
         if event.status == "ready_for_reply":
-            print(dry_run_action_text(event, config))
+            if real_mode:
+                print("REAL AUTO REPLY EXECUTED")
+                print(f"Target: {event.sender}")
+                print(f"Message: {reply_message}")
+            else:
+                print(dry_run_action_text(event, config))

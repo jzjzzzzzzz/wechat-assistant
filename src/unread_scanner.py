@@ -518,7 +518,11 @@ def segment_chat_list_rows(image_path: str | Path) -> list[ChatListRow]:
     panel_right = int(width * 0.43)
     row_width = max(1, panel_right - x)
     y_start = int(height * 0.08)
-    row_height = max(54, min(120, int(height * 0.085)))
+    # WeChat's visible chat rows are about 128-132 px tall on the 1760x1280
+    # Retina screenshots we capture from Window Services.  The previous 0.085
+    # ratio made rows too short, so a preview from the row above could be
+    # associated with the unread badge below it.
+    row_height = max(54, min(136, int(height * 0.102)))
     rows: list[ChatListRow] = []
     index = 0
     y = y_start
@@ -602,8 +606,9 @@ def _text_items_in_row(row: ChatListRow, ocr_items: list[dict[str, Any]]) -> lis
 
 def _sender_items_in_row(row: ChatListRow, ocr_items: list[dict[str, Any]]) -> list[tuple[str, float, float, float]]:
     items: list[tuple[str, float, float, float]] = []
-    sender_right = row.x + int(row.width * 0.60)
-    sender_bottom = row.y + int(row.height * 0.62)
+    sender_left = row.x + int(row.width * 0.12)
+    sender_right = row.x + int(row.width * 0.62)
+    sender_bottom = row.y + int(row.height * 0.66)
     for item in ocr_items:
         text = str(item.get("text", "")).strip()
         if not _is_possible_chat_name(text):
@@ -614,7 +619,9 @@ def _sender_items_in_row(row: ChatListRow, ocr_items: list[dict[str, Any]]) -> l
             continue
         x1, y1, x2, y2 = bounds
         cx, cy = center
-        if x1 > sender_right or y1 > sender_bottom:
+        if cx < sender_left or cx > sender_right:
+            continue
+        if x1 > sender_right or y1 > sender_bottom or cy > sender_bottom:
             continue
         if not row.contains_point(int(cx), int(cy)):
             continue

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timedelta
 
 from src.auto_reply_daemon import AutoReplyDaemon, print_planned_actions, run_auto_reply_once
@@ -320,6 +321,22 @@ def test_print_planned_actions_outputs_dry_run_text(tmp_path, capsys):
 
     output = capsys.readouterr().out
     assert "WOULD AUTO REPLY" in output
+    assert "Target: 爱" in output
+    assert "Message: 号主不在线～ AI自动回复的" in output
+
+
+def test_print_planned_actions_outputs_real_executed_text(tmp_path, capsys):
+    event = replace(make_event(), status="ready_for_reply")
+    config = make_config(tmp_path)
+    config["dry_run"] = False
+    config["allow_real_send"] = True
+    config["auto_reply"] = dict(config["auto_reply"], dry_run=False)
+
+    print_planned_actions([event], config)
+
+    output = capsys.readouterr().out
+    assert "REAL AUTO REPLY EXECUTED" in output
+    assert "WOULD AUTO REPLY" not in output
     assert "Target: 爱" in output
     assert "Message: 号主不在线～ AI自动回复的" in output
 
