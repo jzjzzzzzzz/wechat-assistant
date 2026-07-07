@@ -66,6 +66,11 @@ def test_search_contact_success_uses_keyboard_and_clipboard(monkeypatch) -> None
         "activate_wechat_result",
         lambda app_name, wait_seconds, retry_count: UiActionResult("activate_wechat", True, "ok"),
     )
+    monkeypatch.setattr(
+        wechat_window,
+        "is_app_frontmost_result",
+        lambda app_name: UiActionResult("is_app_frontmost", True, "frontmost"),
+    )
     monkeypatch.setattr(wechat_window, "_import_pyautogui", lambda: (FakePyAutoGui, None))
     monkeypatch.setitem(sys.modules, "pyperclip", fake_pyperclip)
     monkeypatch.setattr(wechat_window.time, "sleep", lambda seconds: None)
@@ -103,6 +108,11 @@ def test_search_contact_failure_captures_screenshot(monkeypatch) -> None:
         "activate_wechat_result",
         lambda app_name, wait_seconds, retry_count: UiActionResult("activate_wechat", True, "ok"),
     )
+    monkeypatch.setattr(
+        wechat_window,
+        "is_app_frontmost_result",
+        lambda app_name: UiActionResult("is_app_frontmost", True, "frontmost"),
+    )
     monkeypatch.setattr(wechat_window, "_import_pyautogui", lambda: (FailingPyAutoGui, None))
     monkeypatch.setitem(sys.modules, "pyperclip", SimpleNamespace(copy=lambda text: None))
     monkeypatch.setattr(wechat_window.time, "sleep", lambda seconds: None)
@@ -122,3 +132,47 @@ def test_search_contact_failure_captures_screenshot(monkeypatch) -> None:
     assert result.attempt == 2
     assert result.screenshot_path == "failure.png"
     assert screenshots == ["failure.png", "failure.png"]
+
+
+def test_search_contact_blocks_shortcuts_when_wechat_not_frontmost(monkeypatch) -> None:
+    actions: list[tuple[str, tuple[str, ...] | str]] = []
+    screenshots: list[str] = []
+
+    class FakePyAutoGui:
+        @staticmethod
+        def hotkey(*keys):
+            actions.append(("hotkey", keys))
+
+        @staticmethod
+        def press(key):
+            actions.append(("press", key))
+
+    monkeypatch.setattr(
+        wechat_window,
+        "activate_wechat_result",
+        lambda app_name, wait_seconds, retry_count: UiActionResult("activate_wechat", True, "ok"),
+    )
+    monkeypatch.setattr(
+        wechat_window,
+        "is_app_frontmost_result",
+        lambda app_name: UiActionResult("is_app_frontmost", False, "frontmost is Safari"),
+    )
+    monkeypatch.setattr(wechat_window, "_import_pyautogui", lambda: (FakePyAutoGui, None))
+    monkeypatch.setitem(sys.modules, "pyperclip", SimpleNamespace(copy=lambda text: actions.append(("copy", text))))
+    monkeypatch.setattr(wechat_window.time, "sleep", lambda seconds: None)
+
+    result = wechat_window.search_contact_result(
+        "文件传输助手",
+        {
+            "wechat_app_name": "WeChat",
+            "search_delay_seconds": 0,
+            "ui_action_interval_seconds": 0,
+            "max_retry": 1,
+        },
+        screenshot_func=lambda config: screenshots.append("not_frontmost.png") or "not_frontmost.png",
+    )
+
+    assert result.ok is False
+    assert "not frontmost" in result.message
+    assert actions == []
+    assert screenshots == ["not_frontmost.png"]

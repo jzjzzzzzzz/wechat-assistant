@@ -133,6 +133,64 @@ def is_wechat_running(app_name: str = "WeChat") -> bool:
     return is_wechat_running_result(app_name).ok
 
 
+def is_app_frontmost_result(app_name: str = "WeChat") -> UiActionResult:
+    """Return whether *app_name* is the current frontmost macOS process."""
+    script = f'tell application "System Events" to get frontmost of process "{app_name}"'
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        frontmost = result.returncode == 0 and result.stdout.strip().lower() == "true"
+        message = f"Frontmost check for {app_name}: {frontmost}"
+        if frontmost:
+            LOGGER.info(message)
+            return UiActionResult("is_app_frontmost", True, message)
+        stderr = result.stderr.strip()
+        message = f"{app_name} is not frontmost"
+        if stderr:
+            message = f"{message}: {stderr}"
+        LOGGER.warning(message)
+        return UiActionResult("is_app_frontmost", False, message, error=stderr or None)
+    except Exception as exc:
+        message = f"Failed to check frontmost app {app_name}: {exc}"
+        LOGGER.error(message)
+        return UiActionResult("is_app_frontmost", False, message, error=str(exc))
+
+
+def set_app_frontmost_result(app_name: str = "WeChat") -> UiActionResult:
+    """Best-effort Accessibility handoff to make *app_name* frontmost."""
+    script = f'''
+tell application "{app_name}" to activate
+tell application "System Events"
+    tell process "{app_name}"
+        set frontmost to true
+    end tell
+end tell
+'''
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            message = f"Requested frontmost focus for {app_name}."
+            LOGGER.info(message)
+            return UiActionResult("set_app_frontmost", True, message)
+        stderr = result.stderr.strip()
+        message = f"Failed to set {app_name} frontmost: {stderr or 'osascript failed'}"
+        LOGGER.warning(message)
+        return UiActionResult("set_app_frontmost", False, message, error=stderr)
+    except Exception as exc:
+        message = f"Failed to set {app_name} frontmost: {exc}"
+        LOGGER.error(message)
+        return UiActionResult("set_app_frontmost", False, message, error=str(exc))
+
+
 def open_wechat_result(app_name: str = "WeChat") -> UiActionResult:
     running_result = is_wechat_running_result(app_name)
     if running_result.ok:
@@ -188,19 +246,34 @@ def activate_wechat_result(
                     text=True,
                 )
                 if result.returncode == 0:
-                    message = f"Activated WeChat window on attempt {attempt}."
-                    LOGGER.info(message)
+                    set_frontmost = set_app_frontmost_result(app_name)
                     time.sleep(wait_seconds)
-                    return UiActionResult("activate_wechat", True, message, attempt=attempt)
+                    frontmost = is_app_frontmost_result(app_name)
+                    if frontmost.ok:
+                        message = f"Activated WeChat window on attempt {attempt}; frontmost confirmed."
+                        LOGGER.info(message)
+                        return UiActionResult("activate_wechat", True, message, attempt=attempt)
+                    last_result = UiActionResult(
+                        "activate_wechat",
+                        False,
+                        (
+                            f"Activated {app_name}, but frontmost verification failed: "
+                            f"{frontmost.message}"
+                        ),
+                        attempt=attempt,
+                        error=frontmost.error or set_frontmost.error,
+                    )
+                    LOGGER.error(last_result.message)
                 stderr = result.stderr.strip()
-                last_result = UiActionResult(
-                    "activate_wechat",
-                    False,
-                    f"Failed to activate WeChat on attempt {attempt}: {stderr}",
-                    attempt=attempt,
-                    error=stderr,
-                )
-                LOGGER.error(last_result.message)
+                if result.returncode != 0:
+                    last_result = UiActionResult(
+                        "activate_wechat",
+                        False,
+                        f"Failed to activate WeChat on attempt {attempt}: {stderr}",
+                        attempt=attempt,
+                        error=stderr,
+                    )
+                    LOGGER.error(last_result.message)
             except Exception as exc:
                 last_result = UiActionResult(
                     "activate_wechat",
@@ -226,11 +299,13 @@ def search_contact_result(
     config: dict[str, Any],
     *,
     screenshot_func: Any | None = None,
+    frontmost_func: Any | None = None,
 ) -> UiActionResult:
     app_name = config.get("wechat_app_name", "WeChat")
     delay = float(config.get("search_delay_seconds", 1.5))
     retry_count = int(config.get("max_retry", 3))
     interval = float(config.get("ui_action_interval_seconds", 0.2))
+    frontmost_checker = frontmost_func or is_app_frontmost_result
 
     pyautogui, import_error = _import_pyautogui()
     if import_error:
@@ -261,6 +336,14 @@ def search_contact_result(
             LOGGER.error(last_result.message)
         else:
             try:
+                frontmost = frontmost_checker(app_name)
+                if hasattr(frontmost, "ok"):
+                    if not frontmost.ok:
+                        raise RuntimeError(
+                            f"WeChat is not frontmost before search shortcuts: {frontmost.message}"
+                        )
+                elif not frontmost:
+                    raise RuntimeError("WeChat is not frontmost before search shortcuts")
                 LOGGER.info(
                     "Searching WeChat contact by shortcuts. target=%s attempt=%s/%s",
                     contact_name,

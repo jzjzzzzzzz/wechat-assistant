@@ -271,6 +271,41 @@ def test_dry_run_never_calls_real_sender(tmp_path, monkeypatch):
     assert sender_calls == []
 
 
+def test_real_send_mode_calls_sender_and_marks_real_sent(tmp_path, monkeypatch):
+    sender_calls = []
+    monkeypatch.setattr(
+        "src.message_sender.send_message",
+        lambda config, target, message: sender_calls.append((target, message, config["dry_run"])) or True,
+    )
+    config = make_config(tmp_path, delay_minutes=0)
+    config["dry_run"] = False
+    config["allow_real_send"] = True
+    config["auto_reply"]["dry_run"] = False
+    config["allowed_real_contacts"] = ["文件传输助手", "File Transfer"]
+    store = AutoReplyStateStore(config["database_path"])
+
+    daemon = AutoReplyDaemon(
+        config,
+        dry_run_mode=False,
+        notification_detector=lambda config: [make_event(sender="文件传输助手")],
+        unread_scanner=lambda config: [],
+        now_func=lambda: BASE_TIME,
+        state_store=store,
+        status_watcher=FakeStatusWatcher(["offline", "offline"]),
+    )
+
+    events = daemon.run_once()
+    record = store.get("文件传输助手", "notification_ocr")
+    store.close()
+
+    assert events[0].status == "ready_for_reply"
+    assert sender_calls == [("文件传输助手", "号主不在线～ AI自动回复的", False)]
+    assert record is not None
+    assert record.real_sent is True
+    assert record.replied_dry_run is False
+    assert record.real_sent_at == BASE_TIME
+
+
 def test_print_planned_actions_outputs_dry_run_text(tmp_path, capsys):
     event = make_event()
     event = AutoReplyDaemon(
@@ -452,3 +487,32 @@ def test_delay_override_sets_cli_config_only(monkeypatch, tmp_path):
 
     assert result == 0
     assert captured["delay_minutes"] == 0.0
+
+
+def test_cli_auto_reply_daemon_force_send_disables_auto_reply_dry_run(monkeypatch, tmp_path):
+    captured = {}
+
+    class FakeDaemon:
+        def __init__(self, config, **kwargs):
+            captured["dry_run_mode"] = kwargs.get("dry_run_mode")
+            captured["dry_run"] = config["dry_run"]
+            captured["allow_real_send"] = config["allow_real_send"]
+            captured["auto_reply_dry_run"] = config["auto_reply"]["dry_run"]
+            self.config = config
+            self.state_store = AutoReplyStateStore(config["database_path"])
+
+        def run_once(self):
+            return []
+
+    monkeypatch.setattr("src.auto_reply_daemon.AutoReplyDaemon", FakeDaemon)
+    monkeypatch.setattr("src.main.load_config", lambda: make_config(tmp_path))
+
+    result = run_command("auto-reply-daemon", force_send=True, once=True)
+
+    assert result == 0
+    assert captured == {
+        "dry_run_mode": False,
+        "dry_run": False,
+        "allow_real_send": True,
+        "auto_reply_dry_run": False,
+    }

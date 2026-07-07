@@ -194,10 +194,10 @@ class AutoReplyDaemon:
             )
         self.state_store.mark_stale_rows(now=now, stale_after_minutes=stale_after_minutes)
 
-    def _execute_reply(self, event: AutoReplyEvent) -> tuple[bool, GateDecision]:
+    def _execute_reply(self, event: AutoReplyEvent) -> tuple[bool, GateDecision, bool]:
         """Send the auto-reply for *event* after final gate validation.
 
-        Returns (True, decision) if the message was sent (or dry-run logged).
+        Returns (executed, decision, real_sent).
         """
         reply_message = str(self.auto_reply_config.get("reply_message", "号主不在线～ AI自动回复的"))
 
@@ -221,7 +221,7 @@ class AutoReplyDaemon:
                 "Auto-reply final gate blocked. sender=%s reason=%s",
                 event.sender, decision.reason,
             )
-            return False, decision
+            return False, decision, False
 
         if self.dry_run_mode:
             LOGGER.info(
@@ -229,7 +229,7 @@ class AutoReplyDaemon:
                 event.sender, reply_message,
             )
             print(f"[DRY RUN] WOULD AUTO REPLY → {event.sender}: {reply_message}")
-            return True, decision
+            return True, decision, False
 
         # Real send: import lazily so tests without pyautogui still work.
         try:
@@ -244,10 +244,10 @@ class AutoReplyDaemon:
                 LOGGER.info("Auto-reply sent successfully. sender=%s", event.sender)
             else:
                 LOGGER.error("Auto-reply send_message returned False. sender=%s", event.sender)
-            return sent, decision
+            return sent, decision, bool(sent)
         except Exception as exc:
             LOGGER.error("Auto-reply send failed for sender=%s: %s", event.sender, exc)
-            return False, decision
+            return False, decision, False
 
     def _poll_and_update_status(self) -> str:
         """Refresh owner status.
@@ -342,6 +342,7 @@ class AutoReplyDaemon:
 
         # ── Step 4: final gate + action on ready events ───────────────────────
         finalized: list[AutoReplyEvent] = []
+        real_sent_events: list[AutoReplyEvent] = []
         for event in planned:
             delay_seconds = float(self.auto_reply_config.get("delay_minutes", 5)) * 60.0
             elapsed = max(0.0, (event.detected_at - event.first_seen_at).total_seconds())
@@ -351,12 +352,18 @@ class AutoReplyDaemon:
             )
 
             if event.status == "ready_for_reply":
-                executed, decision = self._execute_reply(event)
+                executed, decision, real_sent = self._execute_reply(event)
                 if not executed:
                     event = replace(event, status="ignored", reason=decision.reason)
+                elif real_sent:
+                    real_sent_events.append(event)
             finalized.append(event)
 
         self._persist_planned_events(finalized)
+        if real_sent_events:
+            now = self.now_func()
+            for event in real_sent_events:
+                self.state_store.mark_real_sent(event, now=now)
         return finalized
 
     def run_forever(self) -> None:

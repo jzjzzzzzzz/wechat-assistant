@@ -267,6 +267,78 @@ class AutoReplyStateStore:
         self.connection.commit()
         return int(cursor.rowcount)
 
+    def mark_real_sent(self, event: AutoReplyEvent, *, now: datetime) -> AutoReplyStateRecord | None:
+        """Mark a planned auto-reply event as really sent.
+
+        The caller should call this only after message_sender.send_message()
+        returns True.  This keeps dry-run state distinct from real-send state.
+        """
+        existing = self.get(event.sender, event.source)
+        if existing is None:
+            cursor = self.connection.execute(
+                """
+                INSERT INTO auto_reply_state
+                    (sender, source, first_seen_at, last_seen_at, last_status, last_reason,
+                     last_preview, confidence, replied_dry_run, real_sent, dry_run_replied_at,
+                     real_sent_at, stale_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event.sender,
+                    event.source,
+                    event.first_seen_at.isoformat(timespec="seconds"),
+                    event.last_seen_at.isoformat(timespec="seconds"),
+                    event.status,
+                    event.reason,
+                    event.message_preview,
+                    float(event.confidence),
+                    0,
+                    1,
+                    None,
+                    _now_text(now),
+                    None,
+                    _now_text(now),
+                    _now_text(now),
+                ),
+            )
+            self.connection.commit()
+            row = self.connection.execute(
+                "SELECT * FROM auto_reply_state WHERE id = ?",
+                (cursor.lastrowid,),
+            ).fetchone()
+            return self._row_to_record(row) if row else None
+
+        self.connection.execute(
+            """
+            UPDATE auto_reply_state
+            SET last_status = ?,
+                last_reason = ?,
+                last_preview = ?,
+                confidence = ?,
+                replied_dry_run = 0,
+                real_sent = 1,
+                dry_run_replied_at = NULL,
+                real_sent_at = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                event.status,
+                event.reason,
+                event.message_preview,
+                float(event.confidence),
+                _now_text(now),
+                _now_text(now),
+                existing.id,
+            ),
+        )
+        self.connection.commit()
+        row = self.connection.execute(
+            "SELECT * FROM auto_reply_state WHERE id = ?",
+            (existing.id,),
+        ).fetchone()
+        return self._row_to_record(row) if row else None
+
     def summarize(self) -> list[AutoReplyStateRecord]:
         rows = self.connection.execute("SELECT * FROM auto_reply_state ORDER BY sender, source").fetchall()
         return [self._row_to_record(row) for row in rows]

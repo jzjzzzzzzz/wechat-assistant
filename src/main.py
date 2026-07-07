@@ -120,6 +120,9 @@ def run_command(
         config = dict(config)
         config["dry_run"] = False
         config["allow_real_send"] = True
+        auto_reply = dict(config.get("auto_reply", {}))
+        auto_reply["dry_run"] = False
+        config["auto_reply"] = auto_reply
 
     if dry_run:
         config = dict(config)
