@@ -267,12 +267,12 @@ def should_ignore_by_name(sender: str, ar_config: dict[str, Any]) -> str | None:
 
 
 def _current_owner_status(config: dict[str, Any]) -> str:
-    """Return current system status: 'online' (active/OL) or 'offline' (inactive/OFF) or 'unknown'.
+    """Return current owner status: 'online', 'offline', or 'unknown'.
 
-    Semantics (aligned with macOS top-right corner label):
-    - 'online' / OL (green)  → auto-reply system is ACTIVE  → reply IS allowed
-    - 'offline' / OFF (red)  → auto-reply system is INACTIVE → reply is BLOCKED
-    - 'unknown'              → cannot determine              → reply is BLOCKED (safe default)
+    Semantics:
+    - 'online' / OL (green)  → owner is online  → auto-reply is BLOCKED
+    - 'offline' / OFF (red)  → owner is offline → auto-reply may proceed
+    - 'unknown'              → cannot determine → reply is BLOCKED (safe default)
     """
     status = str(config.get("owner_status", "")).strip().lower()
     if status in {"online", "offline", "unknown"}:
@@ -280,12 +280,10 @@ def _current_owner_status(config: dict[str, Any]) -> str:
     return "unknown"
 
 
-def _immediate_reply_when_online(config: dict[str, Any]) -> bool:
-    """When system is online (OL), skip the delay window and reply immediately."""
+def _immediate_reply_when_offline(config: dict[str, Any]) -> bool:
+    """When owner is offline (OFF), skip the delay window and reply immediately."""
     owner = config.get("owner", {})
     if isinstance(owner, dict):
-        # offline_reply_immediate key kept for config backward-compat; semantically now means
-        # 'when the system is active/online, reply without waiting the delay window'
         return bool(owner.get("offline_reply_immediate", True))
     return True
 
@@ -294,8 +292,8 @@ class AutoReplyPolicy:
     """Stateful policy for auto-reply planning.
 
     Decision flow per event:
-      1. system_status == 'online' (OL)? → proceed
-         system_status == 'offline' (OFF) or 'unknown'? → block (ignored)
+      1. owner_status == 'offline' (OFF)? → proceed
+         owner_status == 'online' (OL) or 'unknown'? → block (ignored)
       2. sender not blocklisted / not group / in whitelist? → proceed; else ignored
       3. OCR confidence >= threshold? → proceed; else ignored
       4. private_only and not private? → ignored
@@ -317,17 +315,17 @@ class AutoReplyPolicy:
         current_time = now or self.now_func()
         system_status = _current_owner_status(self.config)
 
-        # Gate 1: system must be ONLINE (OL) to allow any reply
-        if system_status != "online":
-            reason = "system_offline" if system_status == "offline" else "system_status_unknown"
+        # Gate 1: owner must be OFFLINE (OFF) to allow any reply.
+        if system_status != "offline":
+            reason = "owner_online" if system_status == "online" else "system_status_unknown"
             logger.info(
-                "Auto-reply blocked. sender=%s system_status=%s reason=%s",
+                "Auto-reply blocked. sender=%s owner_status=%s reason=%s",
                 event.sender, system_status, reason,
             )
             return replace(event, status="ignored", reason=reason)
 
         logger.info(
-            "Auto-reply gate passed: system_status=online. sender=%s",
+            "Auto-reply gate passed: owner_status=offline. sender=%s",
             event.sender,
         )
 
@@ -347,7 +345,7 @@ class AutoReplyPolicy:
             logger.info("Auto-reply blocked: private_only. sender=%s", event.sender)
             return replace(event, status="ignored", reason="private_only policy rejected candidate")
 
-        if not (system_status == "online" and _immediate_reply_when_online(self.config)):
+        if not (system_status == "offline" and _immediate_reply_when_offline(self.config)):
             delay = timedelta(minutes=float(self.config["delay_minutes"]))
             if current_time - event.first_seen_at < delay:
                 logger.info(

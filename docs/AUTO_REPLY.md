@@ -19,13 +19,15 @@ The planned reply text is:
 
 ## Detection
 
-Before any auto-reply planning, the daemon OCR-checks the macOS top-right menu bar for the status menu:
+Before any auto-reply planning, the daemon reads the local `owner_status` state written by the status-window button or CLI:
 
-- `🟢 OL`, `Online`, `WA ONLINE`, or `在线`: auto-reply system is active.
-- `🔴 OFF`, `Offline`, `WA OFFLINE`, or `离线`: auto-reply system is inactive.
-- unreadable, conflicting, or missing OCR: `unknown`, safe default no send.
+- `🟢 OL`, `Online`, `WA ONLINE`, or `在线`: owner is online, auto-reply is blocked.
+- `🔴 OFF`, `Offline`, `WA OFFLINE`, or `离线`: owner is offline, auto-reply may proceed after every other gate passes.
+- missing or unreadable state: `unknown`, safe default no send.
 
-The status is polled every daemon pass and again immediately before a ready reply is executed. State changes and allow/block decisions are logged.
+The status is read every daemon pass and again immediately before a ready reply is executed. State changes and allow/block decisions are logged. The daemon also checks the bottom macOS Dock for a red unread badge attached to the WeChat icon when `dock_unread.require_for_auto_reply: true`.
+
+`macos-status-check --once` remains available as a diagnostic screen check. It is not the default daemon status source unless `macos_status.enabled: true`.
 
 Primary detection uses a screenshot of the likely macOS notification area and OCR. By default it skips the top menu-bar strip (`notification_ocr.skip_menu_bar_pixels`) so iBar/status-menu text such as `OL` or `OFF` is not treated as notification content. Candidates must look like WeChat notifications and meet `auto_reply.min_ocr_confidence`.
 
@@ -46,11 +48,11 @@ Both paths produce `AutoReplyEvent` objects with:
 
 macOS status is the first gate:
 
-- `online` / `OL`: candidates may proceed if every other safety check passes.
-- `offline` / `OFF`: candidates are ignored with reason `system_offline`.
+- `online` / `OL`: candidates are ignored with reason `owner_online`.
+- `offline` / `OFF`: candidates may proceed if every other safety check passes.
 - `unknown`: candidates are ignored with reason `system_status_unknown`.
 
-`delay_minutes` remains available for delayed modes. With `owner.offline_reply_immediate: true` kept for backward compatibility, online/OL mode can reply immediately after all gates pass.
+`delay_minutes` remains available for delayed modes. With `owner.offline_reply_immediate: true`, offline/OFF mode can reply immediately after all gates pass.
 
 Private-chat classification is conservative. A sender is treated as private only when:
 
@@ -102,6 +104,7 @@ python -m src.main owner-status set offline
 python -m src.main status-menu --check
 python -m src.main status-menu
 python -m src.main macos-status-check --once
+python -m src.main dock-unread-check --once
 python -m src.main private-whitelist list
 python -m src.main private-whitelist add "爱"
 python -m src.main private-whitelist remove "爱"
@@ -113,7 +116,9 @@ python -m src.main auto-reply-monitor --dry-run --interval-seconds 60 --minutes 
 
 `auto-reply-daemon --dry-run` polls until Ctrl+C and respects `poll_interval_seconds`.
 
-`macos-status-check --once` captures only the top-right menu bar area, OCRs the OL/OFF label, prints the detected status, and exits. It does not scan WeChat, update the database, or send messages.
+`macos-status-check --once` captures only the configured OL/OFF status button area, prints the detected status, and exits. It does not scan WeChat, update the database, or send messages.
+
+`dock-unread-check --once` captures only the bottom Dock strip, visually checks for a red badge attached to a WeChat-like green Dock icon, prints debug image paths, and exits. It does not OCR the Dock, scan WeChat, update the database, or send messages.
 
 `sender-classify` is a safe local policy check. It does not scan WeChat, OCR screenshots, send messages, or control the UI.
 
@@ -139,7 +144,8 @@ If macOS Screen Recording or Accessibility permissions are missing, detection fa
 
 Real auto-reply testing must only target `文件传输助手` / `File Transfer` unless a future explicit whitelist entry is added. Every real auto-reply must pass:
 
-- current top-right status is online/OL
+- current owner status is offline/OFF
+- WeChat Dock red unread badge is confirmed when Dock safety is enabled
 - sender is not a group chat
 - sender is known and passes whitelist checks
 - sender is allowed by `allowed_real_contacts`

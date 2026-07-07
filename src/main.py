@@ -33,6 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
             "status-menu",
             "status-window",
             "macos-status-check",
+            "dock-unread-check",
             "auto-reply-state",
             "auto-reply-monitor",
             "monitor-report",
@@ -319,8 +320,33 @@ def run_command(
         print(f"detected_text: {detection.detected_text or 'none'}")
         print(f"screenshot_path: {detection.screenshot_path or 'none'}")
         print(f"confidence: {detection.confidence:.2f}")
-        print(f"safe_to_auto_reply: {detection.raw_status == 'active'}")
+        print(f"safe_to_auto_reply: {detection.raw_status == 'inactive'}")
         if detection.raw_status == "unknown":
+            print("safe_default: no send")
+        return 0
+
+    if command == "dock-unread-check":
+        from src.dock_unread_detector import detect_dock_wechat_unread, dock_unread_config
+
+        dock = dock_unread_config(config)
+        detection = detect_dock_wechat_unread(config)
+        print(f"enabled: {dock.get('enabled', False)}")
+        print(f"require_for_auto_reply: {dock.get('require_for_auto_reply', False)}")
+        print(f"ok: {detection.ok}")
+        print(f"has_unread: {detection.has_unread}")
+        print(f"message: {detection.message}")
+        print(f"confidence: {detection.confidence:.2f}")
+        print(f"screenshot_path: {detection.screenshot_path or 'none'}")
+        print(f"green_mask_path: {detection.green_mask_path or 'none'}")
+        print(f"red_mask_path: {detection.red_mask_path or 'none'}")
+        print(f"overlay_path: {detection.overlay_path or 'none'}")
+        print(f"wechat_icon_candidate_count: {len(detection.wechat_icon_candidates)}")
+        print(f"red_badge_candidate_count: {len(detection.red_badge_candidates)}")
+        for item in detection.associated_badges:
+            print(f"associated_badge: {item}")
+        for reason in detection.rejected_reasons[:20]:
+            print(f"rejected_reason: {reason}")
+        if detection.has_unread is not True:
             print("safe_default: no send")
         return 0
 

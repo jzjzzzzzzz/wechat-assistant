@@ -1,8 +1,8 @@
 """Tests for src/send_gate.py — unified auto-reply safety gate.
 
 Tests cover:
-- Online status → allowed (if other conditions met)
-- Offline status → blocked
+- Online status → blocked because owner is present
+- Offline status → allowed (if other conditions met)
 - Unknown status → blocked (safe default)
 - Group chat names → blocked
 - 文件传输助手 → allowed as safe test target
@@ -48,26 +48,27 @@ def _base_config(**overrides) -> dict:
 
 # ── Status gate ───────────────────────────────────────────────────────────────
 
-def test_system_online_allows_whitelisted_sender():
+def test_owner_online_blocks_whitelisted_sender():
     decision = should_auto_reply(
         "爱",
         _base_config(),
         ocr_confidence=0.9,
         override_status="online",
     )
-    assert decision.allowed is True
+    assert decision.allowed is False
     assert decision.system_status == "online"
+    assert "owner_online" in decision.reason
 
 
-def test_system_offline_blocks_all_senders():
+def test_owner_offline_allows_whitelisted_sender():
     decision = should_auto_reply(
         "爱",
         _base_config(),
         ocr_confidence=0.9,
         override_status="offline",
     )
-    assert decision.allowed is False
-    assert "system_offline" in decision.reason or "offline" in decision.reason
+    assert decision.allowed is True
+    assert decision.system_status == "offline"
 
 
 def test_system_status_unknown_blocks_all_senders():
@@ -104,7 +105,7 @@ def test_group_chat_names_are_blocked(group_name: str):
         group_name,
         config,
         ocr_confidence=0.9,
-        override_status="online",
+        override_status="offline",
     )
     assert decision.allowed is False, (
         f"Expected group '{group_name}' to be blocked but was allowed. "
@@ -118,7 +119,7 @@ def test_individual_name_not_blocked_as_group():
         "爱",
         _base_config(),
         ocr_confidence=0.9,
-        override_status="online",
+        override_status="offline",
     )
     assert decision.allowed is True
 
@@ -130,19 +131,19 @@ def test_chinese_individual_name_not_blocked():
         "李明",
         config,
         ocr_confidence=0.9,
-        override_status="online",
+        override_status="offline",
     )
     assert decision.allowed is True
 
 
 # ── 文件传输助手 safe test target ─────────────────────────────────────────────
 
-def test_file_transfer_allowed_when_online_dry_run():
+def test_file_transfer_allowed_when_offline_dry_run():
     decision = should_auto_reply(
         "文件传输助手",
         _base_config(dry_run=True),
         ocr_confidence=0.9,
-        override_status="online",
+        override_status="offline",
     )
     assert decision.allowed is True
 
@@ -158,7 +159,7 @@ def test_file_transfer_allowed_for_real_send_when_in_whitelist():
         "文件传输助手",
         config,
         ocr_confidence=0.9,
-        override_status="online",
+        override_status="offline",
     )
     assert decision.allowed is True
 
@@ -177,7 +178,7 @@ def test_unknown_contact_blocked_for_real_send():
         "SomeContact",
         config,
         ocr_confidence=0.9,
-        override_status="online",
+        override_status="offline",
     )
     assert decision.allowed is False
     assert "real_send_target_not_allowed" in decision.reason
@@ -190,7 +191,7 @@ def test_low_ocr_confidence_blocks_send():
         "爱",
         _base_config(),
         ocr_confidence=0.3,   # below min 0.65
-        override_status="online",
+        override_status="offline",
     )
     assert decision.allowed is False
     assert "ocr_confidence" in decision.reason
@@ -201,7 +202,7 @@ def test_confidence_at_minimum_threshold_is_allowed():
         "爱",
         _base_config(),
         ocr_confidence=0.65,  # exactly at threshold
-        override_status="online",
+        override_status="offline",
     )
     assert decision.allowed is True
 
@@ -213,7 +214,7 @@ def test_empty_sender_is_blocked():
         "",
         _base_config(),
         ocr_confidence=0.9,
-        override_status="online",
+        override_status="offline",
     )
     assert decision.allowed is False
 
@@ -223,7 +224,7 @@ def test_unknown_sender_string_is_blocked():
         "unknown",
         _base_config(),
         ocr_confidence=0.9,
-        override_status="online",
+        override_status="offline",
     )
     assert decision.allowed is False
 
@@ -235,7 +236,7 @@ def test_gate_decision_bool_true_when_allowed():
         "爱",
         _base_config(),
         ocr_confidence=0.9,
-        override_status="online",
+        override_status="offline",
     )
     assert bool(decision) is True
 
@@ -245,7 +246,7 @@ def test_gate_decision_bool_false_when_blocked():
         "爱",
         _base_config(),
         ocr_confidence=0.9,
-        override_status="offline",
+        override_status="online",
     )
     assert bool(decision) is False
 
@@ -257,7 +258,7 @@ def test_gate_reports_dry_run_correctly():
         "爱",
         _base_config(dry_run=True),
         ocr_confidence=0.9,
-        override_status="online",
+        override_status="offline",
     )
     assert decision.is_dry_run is True
 
@@ -269,7 +270,7 @@ def test_gate_reports_real_send_mode_correctly():
         "文件传输助手",
         config,
         ocr_confidence=0.9,
-        override_status="online",
+        override_status="offline",
     )
     assert decision.is_dry_run is False
 
@@ -282,7 +283,7 @@ def test_auto_reply_dry_run_true_keeps_gate_in_dry_run_mode():
         "文件传输助手",
         config,
         ocr_confidence=0.9,
-        override_status="online",
+        override_status="offline",
     )
 
     assert decision.allowed is True
@@ -298,9 +299,9 @@ def test_gate_reads_status_from_db_when_no_override(tmp_path: Path):
     config = _base_config()
     config["database_path"] = str(db_path)
 
-    # Write "online" to DB
+    # Write "offline" to DB (owner away)
     with OwnerStatusStore(db_path) as store:
-        store.set_status("online", updated_by="test")
+        store.set_status("offline", updated_by="test")
         decision = should_auto_reply(
             "爱",
             config,
@@ -309,7 +310,7 @@ def test_gate_reads_status_from_db_when_no_override(tmp_path: Path):
         )
 
     assert decision.allowed is True
-    assert decision.system_status == "online"
+    assert decision.system_status == "offline"
 
 
 def test_gate_blocks_when_no_live_or_database_status(tmp_path: Path):
@@ -328,7 +329,7 @@ def test_gate_blocks_when_no_live_or_database_status(tmp_path: Path):
     assert "unknown" in decision.reason
 
 
-def test_gate_reads_offline_from_db_and_blocks(tmp_path: Path):
+def test_gate_reads_online_from_db_and_blocks(tmp_path: Path):
     from src.owner_status import OwnerStatusStore
 
     db_path = tmp_path / "test.sqlite3"
@@ -336,7 +337,7 @@ def test_gate_reads_offline_from_db_and_blocks(tmp_path: Path):
     config["database_path"] = str(db_path)
 
     with OwnerStatusStore(db_path) as store:
-        store.set_status("offline", updated_by="test")
+        store.set_status("online", updated_by="test")
         decision = should_auto_reply(
             "爱",
             config,
@@ -345,3 +346,46 @@ def test_gate_reads_offline_from_db_and_blocks(tmp_path: Path):
         )
 
     assert decision.allowed is False
+    assert decision.system_status == "online"
+    assert "owner_online" in decision.reason
+
+
+def test_dock_unread_required_blocks_when_badge_absent():
+    config = _base_config(
+        dock_unread={
+            "enabled": True,
+            "require_for_auto_reply": True,
+        }
+    )
+
+    decision = should_auto_reply(
+        "爱",
+        config,
+        ocr_confidence=0.9,
+        override_status="offline",
+        dock_has_unread=False,
+        dock_evidence="no badge",
+    )
+
+    assert decision.allowed is False
+    assert "dock_unread_not_detected" in decision.reason
+
+
+def test_dock_unread_required_allows_when_badge_present():
+    config = _base_config(
+        dock_unread={
+            "enabled": True,
+            "require_for_auto_reply": True,
+        }
+    )
+
+    decision = should_auto_reply(
+        "爱",
+        config,
+        ocr_confidence=0.9,
+        override_status="offline",
+        dock_has_unread=True,
+        dock_evidence="badge",
+    )
+
+    assert decision.allowed is True

@@ -36,6 +36,9 @@ def test_default_owner_status_is_online_and_scroll_disabled() -> None:
     assert config["owner"]["status_default"] == "online"
     assert config["owner"]["offline_reply_immediate"] is True
     assert config["unread_scan"]["enable_scroll_scan"] is False
+    assert config["macos_status"]["enabled"] is False
+    assert config["dock_unread"]["enabled"] is True
+    assert config["dock_unread"]["require_for_auto_reply"] is True
 
 
 def test_default_auto_reply_requires_private_chat_whitelist_with_test_user() -> None:

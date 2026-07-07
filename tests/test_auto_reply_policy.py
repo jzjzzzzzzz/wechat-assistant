@@ -1,8 +1,8 @@
 """Tests for auto-reply policy and chat sender classification.
 
 Status semantics (aligned with macOS top-right corner label):
-  owner_status="online"  / 🟢 OL  → system ACTIVE   → auto-reply IS allowed
-  owner_status="offline" / 🔴 OFF → system INACTIVE → auto-reply BLOCKED
+  owner_status="online"  / 🟢 OL  → owner online  → auto-reply BLOCKED
+  owner_status="offline" / 🔴 OFF → owner offline → auto-reply may proceed
   owner_status="unknown"           → cannot determine → auto-reply BLOCKED (safe default)
 """
 from datetime import datetime, timedelta
@@ -36,8 +36,8 @@ def make_event(**overrides):
     return AutoReplyEvent(**values)
 
 
-def make_config(owner_status="online", owner_overrides=None, **auto_reply_overrides):
-    """Default owner_status='online' (OL): system is active, auto-reply allowed."""
+def make_config(owner_status="offline", owner_overrides=None, **auto_reply_overrides):
+    """Default owner_status='offline' (OFF): owner away, auto-reply may proceed."""
     config = load_config()
     config = dict(config)
     auto_reply = dict(config["auto_reply"])
@@ -52,23 +52,23 @@ def make_config(owner_status="online", owner_overrides=None, **auto_reply_overri
 
 # ── Status gate tests ─────────────────────────────────────────────────────────
 
-def test_system_online_OL_allows_auto_reply():
-    """OL / online → system is active → auto-reply proceeds (if sender passes other gates)."""
+def test_owner_online_OL_blocks_auto_reply():
+    """OL / online → owner is present → auto-reply is blocked."""
     policy = AutoReplyPolicy(make_config(owner_status="online", delay_minutes=0))
 
     event = policy.evaluate(make_event(), now=BASE_TIME)
 
-    assert event.status == "ready_for_reply"
+    assert event.status == "ignored"
+    assert event.reason == "owner_online"
 
 
-def test_system_offline_OFF_blocks_auto_reply():
-    """OFF / offline → system is inactive → auto-reply blocked."""
+def test_owner_offline_OFF_allows_auto_reply():
+    """OFF / offline → owner is away → auto-reply proceeds if all other gates pass."""
     policy = AutoReplyPolicy(make_config(owner_status="offline", delay_minutes=0))
 
     event = policy.evaluate(make_event(), now=BASE_TIME)
 
-    assert event.status == "ignored"
-    assert event.reason == "system_offline"
+    assert event.status == "ready_for_reply"
 
 
 def test_system_status_unknown_blocks_auto_reply():
@@ -92,21 +92,21 @@ def test_missing_explicit_runtime_status_blocks_auto_reply():
     assert event.reason == "system_status_unknown"
 
 
-def test_system_offline_blocks_immediately_regardless_of_delay():
-    """When system is OFF, the event is blocked immediately — delay window irrelevant."""
+def test_owner_offline_replies_immediately_regardless_of_delay_by_default():
+    """When owner is OFF, default immediate mode skips the delay window."""
     policy = AutoReplyPolicy(make_config(owner_status="offline", delay_minutes=5))
 
     event = policy.evaluate(make_event(first_seen_at=BASE_TIME), now=BASE_TIME + timedelta(hours=1))
 
-    assert event.status == "ignored"
-    assert event.reason == "system_offline"
+    assert event.status == "ready_for_reply"
+    assert event.reason is None
 
 
 # ── Delay window tests ────────────────────────────────────────────────────────
 
 def test_delay_minutes_keeps_event_pending_before_window_expires():
     policy = AutoReplyPolicy(
-        make_config(owner_status="online", delay_minutes=5, owner_overrides={"offline_reply_immediate": False})
+        make_config(owner_status="offline", delay_minutes=5, owner_overrides={"offline_reply_immediate": False})
     )
 
     event = policy.evaluate(make_event(), now=BASE_TIME + timedelta(minutes=4, seconds=59))
@@ -117,7 +117,7 @@ def test_delay_minutes_keeps_event_pending_before_window_expires():
 
 def test_event_becomes_ready_after_delay_minutes():
     policy = AutoReplyPolicy(
-        make_config(owner_status="online", delay_minutes=5, owner_overrides={"offline_reply_immediate": False})
+        make_config(owner_status="offline", delay_minutes=5, owner_overrides={"offline_reply_immediate": False})
     )
 
     event = policy.evaluate(make_event(), now=BASE_TIME + timedelta(minutes=5))
@@ -126,9 +126,9 @@ def test_event_becomes_ready_after_delay_minutes():
 
 
 def test_immediate_mode_skips_delay_window():
-    """With offline_reply_immediate=True and system online, no delay is applied."""
+    """With offline_reply_immediate=True and owner offline, no delay is applied."""
     policy = AutoReplyPolicy(
-        make_config(owner_status="online", delay_minutes=5, owner_overrides={"offline_reply_immediate": True})
+        make_config(owner_status="offline", delay_minutes=5, owner_overrides={"offline_reply_immediate": True})
     )
 
     event = policy.evaluate(make_event(first_seen_at=BASE_TIME), now=BASE_TIME)
@@ -139,7 +139,7 @@ def test_immediate_mode_skips_delay_window():
 # ── Cooldown tests ────────────────────────────────────────────────────────────
 
 def test_cooldown_prevents_repeated_reply_plan_for_same_sender():
-    policy = AutoReplyPolicy(make_config(owner_status="online", delay_minutes=0, cooldown_minutes=60))
+    policy = AutoReplyPolicy(make_config(owner_status="offline", delay_minutes=0, cooldown_minutes=60))
 
     first = policy.evaluate(make_event(), now=BASE_TIME)
     second = policy.evaluate(
@@ -251,7 +251,7 @@ def test_ocr_name_with_non_numeric_parentheses_not_group_when_whitelisted():
 
 def test_group_blocked_by_policy_even_if_in_whitelist():
     """Group chat name in whitelist must still be blocked — group detection takes priority."""
-    config = make_config(owner_status="online", private_chat_whitelist=["同学群"])
+    config = make_config(owner_status="offline", private_chat_whitelist=["同学群"])
     policy = AutoReplyPolicy(config)
 
     event = policy.evaluate(make_event(sender="同学群"), now=BASE_TIME)
@@ -262,7 +262,7 @@ def test_group_blocked_by_policy_even_if_in_whitelist():
 
 def test_group_with_count_blocked_by_policy():
     """Group with member count in name must be blocked by policy."""
-    config = make_config(owner_status="online", private_chat_whitelist=["项目组(5)"])
+    config = make_config(owner_status="offline", private_chat_whitelist=["项目组(5)"])
     policy = AutoReplyPolicy(config)
 
     event = policy.evaluate(make_event(sender="项目组(5)"), now=BASE_TIME)
@@ -273,7 +273,7 @@ def test_group_with_count_blocked_by_policy():
 # ── Blocklist / non-private keyword tests ────────────────────────────────────
 
 def test_blocklist_filtering_ignores_group_and_system_names():
-    policy = AutoReplyPolicy(make_config(owner_status="online", delay_minutes=0))
+    policy = AutoReplyPolicy(make_config(owner_status="offline", delay_minutes=0))
 
     event = policy.evaluate(make_event(sender="同学群"), now=BASE_TIME)
 
@@ -301,7 +301,7 @@ def test_private_whitelist_allows_test_user_ai():
 
 
 def test_non_whitelisted_sender_is_not_treated_as_private():
-    policy = AutoReplyPolicy(make_config(owner_status="online", delay_minutes=0))
+    policy = AutoReplyPolicy(make_config(owner_status="offline", delay_minutes=0))
 
     event = policy.evaluate(make_event(sender="Alice"), now=BASE_TIME)
 
@@ -350,7 +350,7 @@ def test_multi_participant_separator_marks_sender_as_group_candidate():
 # ── OCR confidence and private-only tests ────────────────────────────────────
 
 def test_private_only_filtering_ignores_non_private_candidate():
-    policy = AutoReplyPolicy(make_config(owner_status="online", delay_minutes=0, private_only=True))
+    policy = AutoReplyPolicy(make_config(owner_status="offline", delay_minutes=0, private_only=True))
 
     event = policy.evaluate(make_event(is_private_candidate=False), now=BASE_TIME)
 
@@ -359,7 +359,7 @@ def test_private_only_filtering_ignores_non_private_candidate():
 
 
 def test_low_ocr_confidence_filtering_ignores_candidate():
-    policy = AutoReplyPolicy(make_config(owner_status="online", delay_minutes=0, min_ocr_confidence=0.65))
+    policy = AutoReplyPolicy(make_config(owner_status="offline", delay_minutes=0, min_ocr_confidence=0.65))
 
     event = policy.evaluate(make_event(confidence=0.4), now=BASE_TIME)
 
@@ -368,7 +368,7 @@ def test_low_ocr_confidence_filtering_ignores_candidate():
 
 
 def test_unknown_sender_filtering_ignores_candidate():
-    policy = AutoReplyPolicy(make_config(owner_status="online", delay_minutes=0))
+    policy = AutoReplyPolicy(make_config(owner_status="offline", delay_minutes=0))
 
     event = policy.evaluate(make_event(sender="unknown"), now=BASE_TIME)
 

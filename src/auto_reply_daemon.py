@@ -1,15 +1,15 @@
 """Auto-reply daemon orchestration.
 
 Long-running daemon that:
-1. Polls the macOS top-right corner via OCR to track OL/OFF status changes.
+1. Polls the visible OL/OFF status control to track owner status changes.
 2. Scans WeChat for unread messages / notification events.
 3. Passes every reply candidate through should_auto_reply() safety gate.
 4. In dry-run mode: logs what WOULD be sent without touching WeChat UI.
 5. In real-send mode: calls send_message() only when ALL gate checks pass.
 
 Status semantics:
-  OL  / online  → auto-reply system ACTIVE  → sending allowed
-  OFF / offline → auto-reply system INACTIVE → no sending
+  OL  / online  → owner online  → no auto-reply
+  OFF / offline → owner offline → auto-reply may proceed after all gates
   unknown       → cannot determine           → safe default: no send
 """
 
@@ -29,6 +29,7 @@ from src.auto_reply_policy import (
     validate_auto_reply_config,
 )
 from src.auto_reply_state import AutoReplyStateStore
+from src.dock_unread_detector import DockUnreadDetection, detect_dock_wechat_unread, dock_unread_config
 from src.macos_status_detector import MacosStatusWatcher
 from src.notification_listener import detect_notification_events
 from src.owner_status import OwnerStatusStore, get_owner_status, owner_config
@@ -39,6 +40,7 @@ from src.unread_scanner import scan_unread_events
 LOGGER = logging.getLogger(__name__)
 
 Detector = Callable[[dict[str, Any]], list[AutoReplyEvent]]
+DockDetector = Callable[[dict[str, Any]], DockUnreadDetection]
 
 
 def _apply_dry_run(config: dict[str, Any]) -> dict[str, Any]:
@@ -70,6 +72,7 @@ class AutoReplyDaemon:
         state_store: AutoReplyStateStore | None = None,
         status_watcher: MacosStatusWatcher | None = None,
         owner_status_store: OwnerStatusStore | None = None,
+        dock_unread_detector: DockDetector = detect_dock_wechat_unread,
     ) -> None:
         if dry_run_mode:
             self.config = _apply_dry_run(config)
@@ -86,8 +89,10 @@ class AutoReplyDaemon:
         self.state_store = state_store or AutoReplyStateStore(self.config.get("database_path"))
         self.database_path = str(self.state_store.database_path)
         self._events_by_key: dict[tuple[str, str], AutoReplyEvent] = {}
+        self.dock_unread_detector = dock_unread_detector
+        self._last_dock_detection: DockUnreadDetection | None = None
 
-        # Status watcher: polls macOS top-right corner each pass.
+        # Status watcher: polls the visible OL/OFF control each pass.
         self._status_watcher = status_watcher or MacosStatusWatcher(
             self.config,
             store=owner_status_store or OwnerStatusStore(self.config.get("database_path")),
@@ -196,15 +201,18 @@ class AutoReplyDaemon:
         """
         reply_message = str(self.auto_reply_config.get("reply_message", "号主不在线～ AI自动回复的"))
 
-        # Final status refresh immediately before sending; this prevents stale DB
-        # state from authorizing a send when top-right OCR is now unknown/offline.
+        # Final live refresh immediately before sending; this prevents stale DB
+        # state from authorizing a send when the owner status is now unknown/online.
         current_status = self._poll_and_update_status()
+        dock_detection = self._poll_dock_unread()
         decision: GateDecision = should_auto_reply(
             event.sender,
             self.config,
             ocr_confidence=event.confidence,
             owner_status_store=getattr(self._status_watcher, "store", None),
             override_status=current_status,
+            dock_has_unread=dock_detection.safe_gate_value if dock_detection else None,
+            dock_evidence=dock_detection.message if dock_detection else None,
         )
         log_send_decision(decision, message=reply_message)
 
@@ -242,7 +250,29 @@ class AutoReplyDaemon:
             return False, decision
 
     def _poll_and_update_status(self) -> str:
-        """Poll macOS top-right corner and update owner_status in self.config."""
+        """Refresh owner status.
+
+        The long-running daemon defaults to the local owner_status database,
+        which is updated by the status-window button or CLI commands.  Screen
+        status detection is diagnostic/optional because menu-bar/iBar visibility
+        can be delayed or hidden by macOS.
+        """
+        macos_status = self.config.get("macos_status", {})
+        if not (isinstance(macos_status, dict) and bool(macos_status.get("enabled", True))):
+            try:
+                record = get_owner_status(self.config)
+                self.config["owner_status"] = record.status
+                LOGGER.info(
+                    "Owner status from %s: %s (screen polling disabled)",
+                    record.source,
+                    record.status,
+                )
+                return record.status
+            except Exception as exc:
+                LOGGER.error("Owner status read failed: %s — forcing status=unknown safe default", exc)
+                self.config["owner_status"] = "unknown"
+                return "unknown"
+
         try:
             detection = self._status_watcher.poll()
             if detection.raw_status != "unknown":
@@ -256,14 +286,39 @@ class AutoReplyDaemon:
             self.config["owner_status"] = "unknown"
             return "unknown"
 
+    def _poll_dock_unread(self) -> DockUnreadDetection | None:
+        """Poll the macOS Dock for a WeChat unread red badge, if enabled."""
+        dock_cfg = dock_unread_config(self.config)
+        if not bool(dock_cfg.get("enabled", False)):
+            self._last_dock_detection = None
+            return None
+        try:
+            detection = self.dock_unread_detector(self.config)
+            self._last_dock_detection = detection
+            LOGGER.info(
+                "Dock unread safety: ok=%s has_unread=%s confidence=%.3f message=%s screenshot=%s",
+                detection.ok,
+                detection.has_unread,
+                detection.confidence,
+                detection.message,
+                detection.screenshot_path,
+            )
+            return detection
+        except Exception as exc:
+            LOGGER.warning("Dock unread safety failed safely: %s", exc)
+            self._last_dock_detection = None
+            return None
+
     def run_once(self) -> list[AutoReplyEvent]:
-        # ── Step 1: refresh system status from macOS top-right corner ────────
+        # ── Step 1: refresh owner status and Dock unread signal ──────────────
         current_status = self._poll_and_update_status()
+        dock_detection = self._poll_dock_unread()
         self.policy = AutoReplyPolicy(self.config, now_func=self.now_func)
 
         LOGGER.info(
-            "Daemon pass: system_status=%s dry_run=%s allow_real_send=%s",
+            "Daemon pass: owner_status=%s dock_has_unread=%s dry_run=%s allow_real_send=%s",
             current_status,
+            dock_detection.has_unread if dock_detection else None,
             self.config.get("dry_run", True),
             self.config.get("allow_real_send", False),
         )
@@ -328,11 +383,13 @@ def print_auto_reply_plan(config: dict[str, Any]) -> None:
     owner_record = get_owner_status(config)
     owner = owner_config(config)
     unread = config.get("unread_scan", {}) if isinstance(config.get("unread_scan"), dict) else {}
+    macos_status = config.get("macos_status", {}) if isinstance(config.get("macos_status"), dict) else {}
     saved_status_allows_auto_reply = (
-        owner_record.status == "online"
+        owner_record.status == "offline"
         and bool(ar.get("dry_run", True))
         and not bool(config.get("allow_real_send", False))
     )
+    dock = dock_unread_config(config)
     print("Auto-reply config:")
     for key in (
         "enabled", "dry_run", "delay_minutes", "poll_interval_seconds",
@@ -350,22 +407,27 @@ def print_auto_reply_plan(config: dict[str, Any]) -> None:
     print("Detection priority:")
     for source in ar.get("detection_priority", []):
         print(f"  - {source}")
-    print("System status (macOS top-right corner):")
-    print(f"  status: {owner_record.status}  (online=OL active, offline=OFF inactive)")
+    print("Owner status (visible OL/OFF control):")
+    print(f"  status: {owner_record.status}  (online=OL owner present, offline=OFF owner away)")
     updated = owner_record.updated_at.isoformat(timespec="seconds") if owner_record.updated_at else "none"
     print(f"  updated_at: {updated}")
     print(f"  source: {owner_record.source}")
-    print(f"  immediate_reply_when_online: {owner.get('offline_reply_immediate', True)}")
+    print(f"  offline_reply_immediate: {owner.get('offline_reply_immediate', True)}")
     print("Safety status:")
     print(f"  dry_run: {ar.get('dry_run', True)}")
     print(f"  allow_real_send: {config.get('allow_real_send', False)}")
     print(f"  scroll_scan_default: {unread.get('enable_scroll_scan', False)}")
+    print(f"  screen_status_polling_enabled: {macos_status.get('enabled', True)}")
+    print(f"  dock_unread_enabled: {dock.get('enabled', False)}")
+    print(f"  dock_unread_required_for_reply: {dock.get('require_for_auto_reply', False)}")
     print(f"  saved_status_allows_auto_reply: {saved_status_allows_auto_reply}")
-    print("  live_status_check_required: True")
-    print("  unknown_live_status_blocks: True")
+    print("  owner_status_required: True")
+    print("  unknown_owner_status_blocks: True")
     print(f"State storage: {config.get('database_path', 'data/wechat_assistant.sqlite3')}")
     print("What will be monitored:")
-    print("  - macOS top-right corner (OL/OFF status) via screenshot OCR")
+    print("  - local owner_status database updated by status-window/CLI")
+    print("  - optional visible OL/OFF status control via screenshot/visual detection")
+    print("  - macOS Dock bottom strip for WeChat red unread badge safety")
     print("  - macOS WeChat notification area via screenshot/OCR")
     print("  - WeChat left chat list unread indicators as fallback")
     print("What will be blocked:")

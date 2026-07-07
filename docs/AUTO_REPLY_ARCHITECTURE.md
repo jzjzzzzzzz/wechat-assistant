@@ -95,7 +95,11 @@ Detection paths must produce unified `AutoReplyEvent` values:
 
 ## Primary detection
 
-`macos_status_ocr` is the first runtime gate. Each daemon pass captures the top-right menu bar, OCRs the status-menu title, and maps `OL`/`Online` to `online`, `OFF`/`Offline` to `offline`, and failures or conflicting OCR to `unknown`. Unknown is a hard no-send state.
+`owner_status` is the first runtime gate. Each daemon pass reads the local owner-status database written by the status-window button or CLI. `online` / `OL` means owner present and blocks auto-reply; `offline` / `OFF` means owner away and candidates may proceed.
+
+`macos_status_ocr` remains as an optional diagnostic/runtime mode. When `macos_status.enabled: true`, each daemon pass captures the configured OL/OFF status control, maps `OL`/`Online` to `online`, `OFF`/`Offline` to `offline`, and failures or conflicting OCR to `unknown`. Unknown is a hard no-send state.
+
+`dock_unread` is an additional runtime safety signal. When enabled, it captures only the bottom macOS Dock strip and visually checks for a red unread badge attached to a WeChat-like green Dock icon. It does not OCR the Dock and does not identify the sender; sender identity still comes from notification/window scanning.
 
 `notification_ocr` is the primary strategy.
 
@@ -113,9 +117,10 @@ Activation fallback is disabled by default. The scanner must not inspect WeChat 
 
 The policy decides whether a candidate is ignored, pending, or ready for reply planning.
 
-- Runtime status `online` / `OL` allows candidates to proceed to the remaining gates.
-- Runtime status `offline` / `OFF` ignores candidates with reason `system_offline`.
+- Runtime status `online` / `OL` ignores candidates with reason `owner_online`.
+- Runtime status `offline` / `OFF` allows candidates to proceed to the remaining gates.
 - Runtime status `unknown` ignores candidates with reason `system_status_unknown`.
+- If Dock safety is required and the WeChat Dock red badge is not confirmed, the final send gate blocks with `dock_unread_not_detected`.
 - `delay_minutes` remains available for future delayed modes.
 - Duplicate reply plans for the same sender are blocked for `cooldown_minutes`.
 - `private_only` rejects non-private candidates.
@@ -146,11 +151,12 @@ python -m src.main auto-reply-daemon --dry-run --once
 python -m src.main auto-reply-daemon --dry-run
 python -m src.main owner-status
 python -m src.main macos-status-check --once
+python -m src.main dock-unread-check --once
 python -m src.main private-whitelist list
 python -m src.main sender-classify 爱 "项目组(5)" "Official Accounts"
 python -m src.main auto-reply-monitor --dry-run --interval-seconds 60 --minutes 60
 ```
 
-The one-pass daemon command loads config, checks top-right status, runs notification detection, runs fallback unread scanning, applies policy, checks the final send gate for ready candidates, prints planned dry-run actions when allowed, writes logs, sends nothing in dry-run mode, and exits cleanly.
+The one-pass daemon command loads config, checks owner status and Dock unread safety, runs notification detection, runs fallback unread scanning, applies policy, checks the final send gate for ready candidates, prints planned dry-run actions when allowed, writes logs, sends nothing in dry-run mode, and exits cleanly.
 
 The sender classification commands are local policy checks only. They do not start OCR, scanning, WeChat UI actions, or message sending.

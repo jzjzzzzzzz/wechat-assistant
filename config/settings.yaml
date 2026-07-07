@@ -94,6 +94,7 @@ notification_ocr:
     - "iBar"
 
 macos_status:
+  enabled: false
   capture_status_window_button: true
   capture_padding_x: 8
   capture_padding_y: 6
@@ -119,3 +120,14 @@ background_scan:
   verifier_min_confidence: 0.70
   debug_screenshot_dir: "screenshots/background_scan"
   max_scan_interval_seconds: 30
+
+dock_unread:
+  enabled: true
+  require_for_auto_reply: true
+  capture_bottom_pixels: 220
+  debug_screenshot_dir: "screenshots/dock_scan"
+  min_confidence: 0.55
+  min_red_badge_side: 6
+  max_red_badge_side: 64
+  min_green_icon_side: 24
+  max_green_icon_side: 140

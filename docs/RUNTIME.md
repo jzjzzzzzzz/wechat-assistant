@@ -176,7 +176,7 @@ The LaunchAgent daemon is dry-run only. It does not enable real sending.
 
 ## Status OCR Check
 
-Check the live top-right menu-bar status without scanning WeChat:
+Check the live status-window screenshot detector without scanning WeChat:
 
 ```bash
 python -m src.main macos-status-check --once
@@ -188,10 +188,10 @@ Expected examples:
 raw_status: active
 db_status: online
 detected_text: 🟢 OL
-safe_to_auto_reply: True
+safe_to_auto_reply: False
 ```
 
-If it prints `raw_status: unknown`, the safe behavior is no auto-reply. Enable Screen Recording permission or make the iBar/status-menu item visible.
+`raw_status: inactive` / `db_status: offline` is the owner-away state where auto-reply may proceed after every other gate passes. If it prints `raw_status: unknown`, the safe behavior is no auto-reply. Enable Screen Recording permission or make the status window visible.
 
 The status detector captures only the expected `OL` / `OFF` button area. This avoids OCRing arbitrary application text behind the transparent window:
 
@@ -205,6 +205,23 @@ macos_status:
 ```
 
 `capture_width` and `capture_height` are fallback values used only if dedicated status-window button capture is disabled.
+
+The long-running daemon uses the local owner-status database by default because iBar/menu-bar visibility can be delayed or hidden by macOS:
+
+```yaml
+macos_status:
+  enabled: false
+```
+
+Set `macos_status.enabled: true` only if the visible OL/OFF status control is reliably capturable on your machine.
+
+Check the bottom Dock unread-badge safety signal without scanning WeChat:
+
+```bash
+python -m src.main dock-unread-check --once
+```
+
+This captures only the bottom Dock strip, looks for a red badge attached to a WeChat-like green icon, writes debug masks/overlays under `screenshots/dock_scan/`, and exits.
 
 ## Runtime Status
 
@@ -246,7 +263,8 @@ Minimum config conditions for a future real-send test:
 - `auto_reply.dry_run: false`
 - `allow_real_send: true`
 - `allowed_real_contacts` contains only `文件传输助手` / `File Transfer` unless a future explicit whitelist is intended
-- top-right status OCR says `online` / `OL`
+- owner status says `offline` / `OFF`
+- Dock unread safety confirms a WeChat red unread badge when enabled
 - sender classification is private, not group
 
 Do not test real sends against normal contacts or groups.

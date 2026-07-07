@@ -6,12 +6,13 @@ auto-reply is sent.  It checks all conditions in order and returns
 logged so the operator can see exactly why a message was or was not sent.
 
 Decision order (all must pass to allow sending):
-  1. System status is "online" (OL on macOS top-right) via live override or DB evidence
-  2. Sender is not a group chat (bracket+number pattern, blocklist keywords)
-  3. Sender is in the private_chat_whitelist (if require_private_chat_whitelist)
-  4. OCR confidence >= min_ocr_confidence
-  5. Target is in the allowed contacts list (for real sends)
-  6. Global dry_run flag (if True, gate allows but caller must not actually send)
+  1. Owner status is "offline" (OFF) via live screen evidence or DB evidence
+  2. Optional Dock safety says the WeChat Dock icon has an unread red badge
+  3. Sender is not a group chat (bracket+number pattern, blocklist keywords)
+  4. Sender is in the private_chat_whitelist (if require_private_chat_whitelist)
+  5. OCR confidence >= min_ocr_confidence
+  6. Target is in the allowed contacts list (for real sends)
+  7. Global dry_run flag (if True, gate allows but caller must not actually send)
 
 Safe default: when status is unknown, only a config default, or any check fails → return (False, reason).
 """
@@ -23,6 +24,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.auto_reply_policy import auto_reply_config, classify_chat_sender
+from src.dock_unread_detector import dock_unread_config
 from src.owner_status import OwnerStatusStore
 
 
@@ -38,7 +40,7 @@ class GateDecision:
     allowed: bool
     reason: str
     sender: str
-    system_status: str  # "online", "offline", or "unknown"
+    system_status: str  # owner status: "online", "offline", or "unknown"
     is_dry_run: bool
 
     def __bool__(self) -> bool:
@@ -70,6 +72,8 @@ def should_auto_reply(
     ocr_confidence: float = 1.0,
     owner_status_store: OwnerStatusStore | None = None,
     override_status: str | None = None,
+    dock_has_unread: bool | None = None,
+    dock_evidence: str | None = None,
 ) -> GateDecision:
     """Evaluate whether an auto-reply to *sender* is permitted right now.
 
@@ -79,6 +83,8 @@ def should_auto_reply(
         ocr_confidence: Confidence of the OCR detection that found this sender.
         owner_status_store: Open OwnerStatusStore to reuse; if None, opens a new one.
         override_status: Pass "online"/"offline"/"unknown" to bypass DB lookup (tests).
+        dock_has_unread: Optional live Dock red-badge signal.
+        dock_evidence: Short diagnostic string for logging.
 
     Returns:
         GateDecision(allowed, reason, sender, system_status, is_dry_run)
@@ -92,37 +98,48 @@ def should_auto_reply(
         or not bool(config.get("allow_real_send", False))
     )
 
-    # ── Gate 1: system status must be "online" (OL) ──────────────────────────
+    # ── Gate 1: owner status must be "offline" (OFF) ────────────────────────
     if override_status is not None:
         system_status = str(override_status).strip().lower()
     else:
         system_status = _get_current_system_status(config, owner_status_store)
 
     if system_status == "unknown":
-        reason = "system_status_unknown: cannot read OL/OFF from macOS top-right — safe default: no send"
+        reason = "system_status_unknown: cannot read OL/OFF owner status — safe default: no send"
         LOGGER.warning("send_gate BLOCKED. sender=%r %s", sender, reason)
         return GateDecision(False, reason, sender, system_status, is_dry_run)
 
-    if system_status != "online":
-        reason = f"system_status={system_status}: macOS shows OFF — system inactive, no send"
+    if system_status != "offline":
+        reason = f"owner_online: system_status={system_status}; owner is online, no auto-reply"
         LOGGER.info("send_gate BLOCKED. sender=%r %s", sender, reason)
         return GateDecision(False, reason, sender, system_status, is_dry_run)
 
-    # ── Gate 2: sender classification (group chat / blocklist / whitelist) ────
+    # ── Gate 2: optional Dock unread safety ──────────────────────────────────
+    dock_cfg = dock_unread_config(config)
+    if bool(dock_cfg.get("enabled", False)) and bool(dock_cfg.get("require_for_auto_reply", False)):
+        if dock_has_unread is not True:
+            reason = (
+                "dock_unread_not_detected: WeChat Dock red badge is not confirmed"
+                f"{f' ({dock_evidence})' if dock_evidence else ''}"
+            )
+            LOGGER.info("send_gate BLOCKED. sender=%r %s", sender, reason)
+            return GateDecision(False, reason, sender, system_status, is_dry_run)
+
+    # ── Gate 3: sender classification (group chat / blocklist / whitelist) ───
     classification = classify_chat_sender(sender, ar)
     if not classification.is_private:
         reason = f"sender_blocked: {classification.reason or 'not a private chat'} (category={classification.category})"
         LOGGER.info("send_gate BLOCKED. sender=%r %s", sender, reason)
         return GateDecision(False, reason, sender, system_status, is_dry_run)
 
-    # ── Gate 3: OCR confidence ────────────────────────────────────────────────
+    # ── Gate 4: OCR confidence ────────────────────────────────────────────────
     min_conf = float(ar.get("min_ocr_confidence", 0.65))
     if ocr_confidence < min_conf:
         reason = f"ocr_confidence_too_low: {ocr_confidence:.3f} < {min_conf:.3f}"
         LOGGER.info("send_gate BLOCKED. sender=%r %s", sender, reason)
         return GateDecision(False, reason, sender, system_status, is_dry_run)
 
-    # ── Gate 4: safe-send target check (for real sends) ───────────────────────
+    # ── Gate 5: safe-send target check (for real sends) ───────────────────────
     if not is_dry_run:
         allowed_real = set(_SAFE_TEST_CONTACTS)
         extras = config.get("allowed_real_contacts", [])
@@ -138,7 +155,8 @@ def should_auto_reply(
             return GateDecision(False, reason, sender, system_status, is_dry_run)
 
     reason = (
-        f"ALLOWED: system=online sender_private=True ocr_confidence={ocr_confidence:.3f} "
+        f"ALLOWED: owner_status=offline dock_unread={dock_has_unread} "
+        f"sender_private=True ocr_confidence={ocr_confidence:.3f} "
         f"{'dry_run' if is_dry_run else 'real_send'}"
     )
     LOGGER.info("send_gate ALLOWED. sender=%r %s", sender, reason)

@@ -57,6 +57,25 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "debug_screenshot_dir": "screenshots/background_scan",
         "max_scan_interval_seconds": 30,
     },
+    "macos_status": {
+        "enabled": False,
+        "capture_status_window_button": True,
+        "capture_padding_x": 8,
+        "capture_padding_y": 6,
+        "capture_width": 560,
+        "capture_height": 220,
+    },
+    "dock_unread": {
+        "enabled": True,
+        "require_for_auto_reply": True,
+        "capture_bottom_pixels": 220,
+        "debug_screenshot_dir": "screenshots/dock_scan",
+        "min_confidence": 0.55,
+        "min_red_badge_side": 6,
+        "max_red_badge_side": 64,
+        "min_green_icon_side": 24,
+        "max_green_icon_side": 140,
+    },
 }
 
 REQUIRED_TYPES: dict[str, type | tuple[type, ...]] = {
@@ -81,6 +100,8 @@ REQUIRED_TYPES: dict[str, type | tuple[type, ...]] = {
     "owner": dict,
     "unread_scan": dict,
     "background_scan": dict,
+    "macos_status": dict,
+    "dock_unread": dict,
 }
 
 
@@ -183,6 +204,40 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ConfigError("Invalid config key 'background_scan.verifier_min_confidence': must be between 0 and 1")
     if validated["background_scan"]["max_scan_interval_seconds"] <= 0:
         raise ConfigError("Invalid config key 'background_scan.max_scan_interval_seconds': must be > 0")
+
+    macos_status_defaults = DEFAULT_SETTINGS["macos_status"].copy()
+    macos_status_raw = validated.get("macos_status", {})
+    macos_status_defaults.update(macos_status_raw)
+    validated["macos_status"] = macos_status_defaults
+    if not isinstance(validated["macos_status"].get("enabled"), bool):
+        raise ConfigError("Invalid config key 'macos_status.enabled': expected bool")
+    if not isinstance(validated["macos_status"].get("capture_status_window_button"), bool):
+        raise ConfigError("Invalid config key 'macos_status.capture_status_window_button': expected bool")
+    for key in ("capture_padding_x", "capture_padding_y", "capture_width", "capture_height"):
+        validated["macos_status"][key] = int(validated["macos_status"][key])
+        if validated["macos_status"][key] < 0:
+            raise ConfigError(f"Invalid config key 'macos_status.{key}': must be >= 0")
+
+    dock_defaults = DEFAULT_SETTINGS["dock_unread"].copy()
+    dock_raw = validated.get("dock_unread", {})
+    dock_defaults.update(dock_raw)
+    validated["dock_unread"] = dock_defaults
+    for key in ("enabled", "require_for_auto_reply"):
+        if not isinstance(validated["dock_unread"].get(key), bool):
+            raise ConfigError(f"Invalid config key 'dock_unread.{key}': expected bool")
+    for key in (
+        "capture_bottom_pixels",
+        "min_red_badge_side",
+        "max_red_badge_side",
+        "min_green_icon_side",
+        "max_green_icon_side",
+    ):
+        validated["dock_unread"][key] = int(validated["dock_unread"][key])
+        if validated["dock_unread"][key] <= 0:
+            raise ConfigError(f"Invalid config key 'dock_unread.{key}': must be > 0")
+    validated["dock_unread"]["min_confidence"] = float(validated["dock_unread"]["min_confidence"])
+    if not 0.0 <= validated["dock_unread"]["min_confidence"] <= 1.0:
+        raise ConfigError("Invalid config key 'dock_unread.min_confidence': must be between 0 and 1")
     return validated
 
 

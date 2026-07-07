@@ -1,10 +1,10 @@
-"""Realtime macOS top-right corner status detection via OCR.
+"""Realtime macOS OL/OFF status detection via visual/OCR evidence.
 
-Reads the macOS menu bar region (top-right corner) and maps the
-WeChat Assistant status label to a system status value:
+Reads the configured WeChat Assistant status-control region and maps the
+visible label/color to an owner status value:
 
-  Screen shows "OL" / "Online" / "WA ONLINE" → status = "active"
-  Screen shows "OFF" / "Offline" / "WA OFFLINE" → status = "inactive"
+  Screen shows "OL" / "Online" / "WA ONLINE" → status = "active"   (owner online)
+  Screen shows "OFF" / "Offline" / "WA OFFLINE" → status = "inactive" (owner offline)
   Unreadable / ambiguous → status = "unknown"  (safe default: no send)
 
 The detector is used by the auto-reply daemon to keep the project
@@ -12,7 +12,7 @@ database in sync with whatever the user has set on the status menu
 (rumps menu bar app).  Every state transition is logged.
 
 Terminology note — "active" vs "online":
-  The OwnerStatusStore stores "online" / "offline" (legacy keys, unchanged).
+  The OwnerStatusStore stores "online" / "offline".
   The detector returns "active" / "inactive" / "unknown" to avoid confusion.
   The mapping: active → "online" stored,  inactive → "offline" stored.
 """
@@ -62,7 +62,7 @@ _OFFLINE_TOKENS: frozenset[str] = frozenset({
 
 @dataclass(frozen=True)
 class MacosStatusDetection:
-    """Result of one top-right corner status scan."""
+    """Result of one status-control scan."""
 
     raw_status: str          # "active", "inactive", or "unknown"
     db_status: str           # "online", "offline", or "unknown" (stored in DB)
@@ -274,7 +274,7 @@ def _classify_status_window_pixels(image_path: str, config: dict[str, Any]) -> t
 
 
 def _capture_menu_bar_screenshot(config: dict[str, Any]) -> str | None:
-    """Capture a narrow strip of the top-right menu bar for OCR."""
+    """Capture the configured status-control region for visual/OCR detection."""
     screenshot_dir = Path(config.get("screenshot_dir", "screenshots"))
     if not screenshot_dir.is_absolute():
         screenshot_dir = Path(__file__).resolve().parents[1] / screenshot_dir
@@ -326,7 +326,7 @@ def detect_macos_status(
     ocr_func: Callable[[str, dict[str, Any]], list[str]] = _ocr_screenshot,
     now_func: Callable[[], datetime] = datetime.now,
 ) -> MacosStatusDetection:
-    """Capture and OCR the top-right menu bar; return current status detection.
+    """Capture and OCR/visually classify the status-control region.
 
     Never raises — all failures return status='unknown' (safe default).
     """
@@ -423,7 +423,7 @@ class MacosStatusWatcher:
                     detection.screenshot_path,
                 )
             LOGGER.warning(
-                "MacosStatusWatcher: status=unknown — cannot read top-right corner. "
+                "MacosStatusWatcher: status=unknown — cannot read OL/OFF status control. "
                 "Auto-reply will NOT send (safe default). screenshot=%s",
                 detection.screenshot_path,
             )
@@ -447,7 +447,7 @@ class MacosStatusWatcher:
                 )
                 LOGGER.info(
                     "MacosStatusWatcher: DB updated → owner_status=%s  "
-                    "(OL=active=auto-reply-allowed / OFF=inactive=blocked)",
+                    "(OL=owner-online=blocked / OFF=owner-offline=auto-reply-eligible)",
                     db_value,
                 )
             except Exception as exc:
