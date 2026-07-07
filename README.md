@@ -2,7 +2,7 @@
 
 WeChat Assistant is a macOS Python automation project for controlling the already logged-in WeChat for Mac UI with `pyautogui`, screenshots, OCR, and local configuration files.
 
-License: MIT
+License: Personal Use Only, non-commercial
 
 The project now includes a CLI foundation, a Tkinter GUI dashboard, local SQLite support, OCR/contact tooling, dry-run schedulers, local templates, audit logs, plugin manifest discovery, macOS packaging support, and a gated real auto-reply path for explicitly whitelisted private chats.
 
