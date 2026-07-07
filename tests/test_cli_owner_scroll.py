@@ -129,6 +129,36 @@ def test_private_whitelist_cli_lists_configured_senders(monkeypatch, tmp_path, c
     assert "- 爱" in output
 
 
+def test_private_whitelist_cli_add_remove_updates_settings(monkeypatch, tmp_path, capsys):
+    settings_path = tmp_path / "settings.yaml"
+    settings_path.write_text(
+        "\n".join(
+            [
+                "dry_run: true",
+                "allow_real_send: false",
+                "auto_reply:",
+                "  private_chat_whitelist:",
+                "    - \"爱\"",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("src.main.load_config", lambda: make_config(tmp_path))
+    monkeypatch.setattr("src.private_whitelist.DEFAULT_CONFIG_PATH", settings_path)
+
+    add_result = run_command("private-whitelist", command_args=["add", "Alice"])
+    add_output = capsys.readouterr().out
+    assert add_result == 0
+    assert "action: added" in add_output
+    assert "sender: Alice" in add_output
+
+    remove_result = run_command("private-whitelist", command_args=["remove", "Alice"])
+    remove_output = capsys.readouterr().out
+    assert remove_result == 0
+    assert "action: removed" in remove_output
+
+
 def test_sender_classify_cli_reports_private_sender(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr("src.main.load_config", lambda: make_config(tmp_path))
 

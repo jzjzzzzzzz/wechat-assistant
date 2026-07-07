@@ -103,6 +103,8 @@ python -m src.main status-menu --check
 python -m src.main status-menu
 python -m src.main macos-status-check --once
 python -m src.main private-whitelist list
+python -m src.main private-whitelist add "爱"
+python -m src.main private-whitelist remove "爱"
 python -m src.main sender-classify 爱 "项目组(5)" "Official Accounts"
 python -m src.main auto-reply-monitor --dry-run --interval-seconds 60 --minutes 60
 ```

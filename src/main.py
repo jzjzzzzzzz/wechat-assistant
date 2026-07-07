@@ -213,10 +213,29 @@ def run_command(
 
     if command == "private-whitelist":
         from src.auto_reply_policy import auto_reply_config
+        from src.private_whitelist import add_private_whitelist_sender, remove_private_whitelist_sender
 
         ar = auto_reply_config(config)
+        if command_args and command_args[0] in {"add", "remove"}:
+            if len(command_args) != 2:
+                print("Usage: private-whitelist [list|add <sender>|remove <sender>]")
+                return 2
+            try:
+                if command_args[0] == "add":
+                    result = add_private_whitelist_sender(command_args[1])
+                else:
+                    result = remove_private_whitelist_sender(command_args[1])
+            except ValueError as exc:
+                print(f"Invalid private whitelist update: {exc}")
+                return 2
+            print(f"action: {result.action}")
+            print(f"sender: {result.sender}")
+            print(f"path: {result.path}")
+            print(f"count: {len(result.entries)}")
+            return 0
+
         if command_args and command_args != ["list"]:
-            print("Usage: private-whitelist [list]")
+            print("Usage: private-whitelist [list|add <sender>|remove <sender>]")
             return 2
         whitelist = list(ar.get("private_chat_whitelist", []))
         print(f"require_private_chat_whitelist: {ar.get('require_private_chat_whitelist', True)}")
