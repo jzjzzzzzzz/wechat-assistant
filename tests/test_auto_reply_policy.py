@@ -376,14 +376,14 @@ def test_unknown_sender_filtering_ignores_candidate():
     assert event.reason == "unknown sender"
 
 
-# ── Safe default config tests ────────────────────────────────────────────────
+# ── Current deployment config tests ──────────────────────────────────────────
 
-def test_config_defaults_include_safe_auto_reply_values():
+def test_config_includes_real_auto_reply_profile_with_gates():
     config = load_config()
     ar = auto_reply_config(config)
 
-    assert ar["enabled"] is False
-    assert ar["dry_run"] is True
+    assert ar["enabled"] is True
+    assert ar["dry_run"] is False
     assert ar["delay_minutes"] == 5.0
     assert ar["cooldown_minutes"] == 60.0
     assert ar["state_stale_minutes"] == 1440.0
@@ -391,4 +391,6 @@ def test_config_defaults_include_safe_auto_reply_values():
     assert ar["require_private_chat_whitelist"] is True
     assert "爱" in ar["private_chat_whitelist"]
     assert ar["reply_message"] == "号主不在线～ AI自动回复的"
-    assert config["allow_real_send"] is False
+    assert config["allow_real_send"] is True
+    assert config["owner"]["status_default"] == "online"
+    assert config["dock_unread"]["require_for_auto_reply"] is True

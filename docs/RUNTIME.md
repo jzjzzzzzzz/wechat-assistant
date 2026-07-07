@@ -1,21 +1,25 @@
 # Runtime operations
 
-These commands manage local helper processes only. They do not enable real WeChat sending.
+These commands manage local helper processes and runtime checks. The current
+working config may enable real sending; verify `runtime-status` before starting
+any daemon.
 
-## Safety defaults
+## Current runtime profile
 
-- `dry_run: true`
-- `auto_reply.dry_run: true`
-- `allow_real_send: false`
+- `dry_run: false`
+- `auto_reply.dry_run: false`
+- `allow_real_send: true`
 - `owner.status_default: online`
-- `unread_scan.enable_scroll_scan: false`
+- `unread_scan.enable_scroll_scan: true`
+- `unread_scan.max_scroll_pages: 20`
 
-Real auto-reply sending is disabled in this milestone.
+Real auto-reply sending is enabled in the local config, but still blocked unless
+owner status is `offline` and every safety gate passes.
 
 Auto-reply status semantics:
 
-- `🟢 OL` / `Online`: auto-reply system active; candidates may proceed through the remaining gates.
-- `🔴 OFF` / `Offline`: auto-reply system inactive; no auto-reply.
+- `🟢 OL` / `Online`: owner is present; no auto-reply.
+- `🔴 OFF` / `Offline`: owner is away; valid candidates may proceed through the remaining gates.
 - unknown or conflicting OCR: no auto-reply.
 
 ## macOS Permissions
@@ -129,7 +133,7 @@ Stop it:
 scripts/stop_monitor.sh
 ```
 
-The monitor stays dry-run only. It may detect candidates and print/log `WOULD AUTO REPLY`, but it does not send messages.
+The monitor stays dry-run only. It may detect candidates and print/log `WOULD AUTO REPLY`, but it does not send messages. With the current real-send config, `scripts/start_monitor.sh` intentionally refuses to start because it requires dry-run safety flags.
 
 This script is useful for manual observation and bounded soak tests. For a process that survives terminal exits and restarts at login, use the LaunchAgent setup below.
 
@@ -172,7 +176,9 @@ LaunchAgent logs:
 - status window: `logs/status_window_launchagent.log`
 - dry-run daemon: `logs/auto_reply_daemon_launchagent.log`
 
-The LaunchAgent daemon is dry-run only. It does not enable real sending.
+The bundled LaunchAgent installer is dry-run only and may refuse the current
+real-send config. Use the foreground commands in
+`docs/REAL_AUTO_REPLY_USAGE.md` for controlled real-send operation.
 
 ## Status OCR Check
 

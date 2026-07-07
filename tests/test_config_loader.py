@@ -18,24 +18,33 @@ def test_load_config_reads_settings_file(tmp_path: Path) -> None:
     assert config["test_message"] == "WeChat Assistant test message"
 
 
-def test_default_dry_run_is_true() -> None:
+def test_builtin_defaults_keep_dry_run_true() -> None:
+    assert DEFAULT_SETTINGS["dry_run"] is True
+
+
+def test_current_deployment_config_disables_dry_run() -> None:
     config = load_config()
 
-    assert config["dry_run"] is True
+    assert config["dry_run"] is False
 
 
-def test_default_allow_real_send_is_false() -> None:
+def test_builtin_defaults_keep_real_send_disabled() -> None:
+    assert DEFAULT_SETTINGS["allow_real_send"] is False
+
+
+def test_current_deployment_config_allows_real_send() -> None:
     config = load_config()
 
-    assert config["allow_real_send"] is False
+    assert config["allow_real_send"] is True
 
 
-def test_default_owner_status_is_online_and_scroll_disabled() -> None:
+def test_default_owner_status_is_online_and_scroll_enabled_for_deployment() -> None:
     config = load_config()
 
     assert config["owner"]["status_default"] == "online"
     assert config["owner"]["offline_reply_immediate"] is True
-    assert config["unread_scan"]["enable_scroll_scan"] is False
+    assert config["unread_scan"]["enable_scroll_scan"] is True
+    assert config["unread_scan"]["max_scroll_pages"] == 20
     assert config["macos_status"]["enabled"] is False
     assert config["dock_unread"]["enabled"] is True
     assert config["dock_unread"]["require_for_auto_reply"] is True

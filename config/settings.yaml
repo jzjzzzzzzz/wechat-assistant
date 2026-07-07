@@ -1,5 +1,5 @@
-dry_run: true
-allow_real_send: false
+dry_run: false
+allow_real_send: true
 test_contact: "文件传输助手"
 test_message: "WeChat Assistant test message"
 
@@ -33,8 +33,8 @@ vision_template_threshold: 0.85
 max_retry: 3
 
 auto_reply:
-  enabled: false
-  dry_run: true
+  enabled: true
+  dry_run: false
   delay_minutes: 5
   poll_interval_seconds: 5
   cooldown_minutes: 60
@@ -110,8 +110,8 @@ macos_status:
   capture_height: 220
 
 unread_scan:
-  enable_scroll_scan: false
-  max_scroll_pages: 5
+  enable_scroll_scan: true
+  max_scroll_pages: 20
   scroll_amount: -5
   scroll_pause_seconds: 0.5
   restore_position_after_scan: true

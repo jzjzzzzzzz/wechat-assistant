@@ -151,5 +151,5 @@ def test_activation_fallback_is_disabled_by_default() -> None:
 
     assert config["background_scan"]["allow_activate_wechat_fallback"] is False
     assert config["background_scan"]["prefer_background_capture"] is True
-    assert config["dry_run"] is True
-    assert config["allow_real_send"] is False
+    assert config["owner"]["status_default"] == "online"
+    assert config["dock_unread"]["require_for_auto_reply"] is True

@@ -4,7 +4,7 @@ WeChat Assistant is a macOS Python automation project for controlling the alread
 
 License: MIT
 
-The project now includes a safe CLI foundation, a Tkinter GUI dashboard, local SQLite support, OCR/contact tooling, dry-run schedulers, local templates, audit logs, plugin manifest discovery, and macOS packaging support.
+The project now includes a CLI foundation, a Tkinter GUI dashboard, local SQLite support, OCR/contact tooling, dry-run schedulers, local templates, audit logs, plugin manifest discovery, macOS packaging support, and a gated real auto-reply path for explicitly whitelisted private chats.
 
 ## Project Status
 
@@ -34,10 +34,12 @@ Implemented:
 - This project does not collect account names, passwords, cookies, or tokens.
 - It only controls the visible WeChat for Mac interface that the user has already logged into.
 - Default target is only `文件传输助手`.
-- Default mode is `dry_run: true`, so no real message is sent.
+- This working branch is currently configured for local real auto-reply testing with `dry_run: false` and `allow_real_send: true`.
+- Owner status still blocks sending: `online` / `OL` means no auto-reply; `offline` / `OFF` means valid whitelisted private unread chats may be replied to.
 - Real sending is allowed only when both settings are true:
   - `dry_run: false`
   - `allow_real_send: true`
+- Real auto-reply also requires owner status `offline`, Dock unread confirmation, sender whitelist, group-chat blocking, target search verification, and final send-gate approval.
 - Birthday and future batch features are dry-run first and must not be used for uncontrolled group sending.
 - GUI views do not expose normal-contact real-send actions.
 - Plugin manifests cannot enable direct sending or bypass safety gates.
@@ -133,12 +135,30 @@ logged to `logs/app.log`.
 
 ## Dry Run and Real Sending
 
-The default configuration is safe:
+The current branch is configured for local real-send testing:
+
+```yaml
+dry_run: false
+allow_real_send: true
+
+auto_reply:
+  enabled: true
+  dry_run: false
+
+unread_scan:
+  enable_scroll_scan: true
+  max_scroll_pages: 20
+```
+
+To return to dry-run mode, use:
 
 ```yaml
 dry_run: true
 allow_real_send: false
-test_contact: "文件传输助手"
+
+auto_reply:
+  enabled: false
+  dry_run: true
 ```
 
 `python -m src.main test-send` searches for `文件传输助手` and prepares the configured test message. In dry-run mode it logs what would happen and does not press Enter to send.
@@ -177,6 +197,8 @@ python -m src.main test-send
 
 The command must print `REAL SEND ENABLED`, the target, and the message before pressing Enter. If the visible screen state cannot be confirmed, the send is blocked. Do not use this path for normal contacts.
 
+For real auto-reply operations, see [docs/REAL_AUTO_REPLY_USAGE.md](docs/REAL_AUTO_REPLY_USAGE.md).
+
 ## OCR Contact Verification
 
 Real sends now verify the active WeChat chat before pasting or pressing Enter.
@@ -195,13 +217,12 @@ To test the fix without sending a real message:
 source .venv/bin/activate
 python -m src.main check
 python -m src.main manual-test --plan-only
-python -m src.main test-send
+python -m src.main test-send --dry-run
 pytest
 ```
 
-To do a controlled real-send test, keep a clean commit with `dry_run: true` and
-`allow_real_send: false` as the repository default. Only for the local run, edit
-`config/settings.yaml` to set:
+To do a controlled real-send test to `文件传输助手`, keep the real-send flags
+enabled and make sure the target is explicitly allowed:
 
 ```yaml
 dry_run: false
@@ -282,13 +303,20 @@ The script requires PyInstaller to be installed and runs `pytest` before buildin
 
 ## Testing Only 文件传输助手
 
-Keep this default in `config/settings.yaml`:
+For a no-send test, run:
+
+```bash
+python -m src.main test-send --dry-run
+```
+
+For a controlled real-send test, keep this in `config/settings.yaml`:
 
 ```yaml
 test_contact: "文件传输助手"
 test_message: "WeChat Assistant test message"
-dry_run: true
-allow_real_send: false
+dry_run: false
+allow_real_send: true
+require_known_screen_state_for_real_send: true
 ```
 
 Then run:
@@ -297,7 +325,8 @@ Then run:
 python -m src.main test-send
 ```
 
-With the default dry-run settings, the command prints and logs the planned action without touching the WeChat input box or sending a message.
+The command searches WeChat for `文件传输助手`, verifies the selected row and
+title by OCR, and blocks before paste/Enter if the screen does not match.
 
 ## Troubleshooting
 

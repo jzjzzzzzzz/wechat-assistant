@@ -1,12 +1,15 @@
 # Safe WeChat auto-reply
 
-The default runtime remains dry-run. Real sending is disabled unless the operator explicitly changes both safety flags and the final send gate allows the target.
+The current local runtime is configured for real-send testing. Real sending is
+still disabled by policy unless the operator status is offline/OFF, the target
+is explicitly whitelisted, and the final send gate allows the target.
 
-Default safety settings in `config/settings.yaml`:
+Current real-send settings in `config/settings.yaml`:
 
-- `auto_reply.enabled: false`
-- `auto_reply.dry_run: true`
-- `allow_real_send: false`
+- `dry_run: false`
+- `auto_reply.enabled: true`
+- `auto_reply.dry_run: false`
+- `allow_real_send: true`
 - `auto_reply.private_only: true`
 - `auto_reply.require_private_chat_whitelist: true`
 - `owner.status_default: online`
@@ -129,14 +132,16 @@ python -m src.main auto-reply-monitor --dry-run --interval-seconds 60 --minutes 
 
 ## Explicit non-goals
 
-This milestone never:
+The assistant never:
 
 - reads WeChat databases
 - decrypts WeChat files
 - extracts credentials, cookies, tokens, passwords, or sessions
 - bypasses WeChat security
-- sends a real auto-reply
 - auto-replies to groups, public accounts, subscriptions, service notifications, or system messages
+
+Real auto-reply is available only for explicitly whitelisted private contacts
+after all gates pass.
 
 If macOS Screen Recording or Accessibility permissions are missing, detection fails safely and logs a clear message.
 
