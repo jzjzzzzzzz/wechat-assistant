@@ -142,7 +142,9 @@ If macOS Screen Recording or Accessibility permissions are missing, detection fa
 
 ## Real-send testing boundary
 
-Real auto-reply testing must only target `文件传输助手` / `File Transfer` unless a future explicit whitelist entry is added. Every real auto-reply must pass:
+Real auto-reply testing must only target contacts explicitly listed in `allowed_real_contacts`.
+The current local whitelist includes `文件传输助手` / `File Transfer` and `爱`.
+Every real auto-reply must pass:
 
 - current owner status is offline/OFF
 - WeChat Dock red unread badge is confirmed when Dock safety is enabled
@@ -150,4 +152,11 @@ Real auto-reply testing must only target `文件传输助手` / `File Transfer` 
 - sender is known and passes whitelist checks
 - sender is allowed by `allowed_real_contacts`
 - OCR confidence is above `auto_reply.min_ocr_confidence`
+- WeChat is confirmed frontmost before any keyboard shortcut is sent
+- the opened chat is OCR-verified by sidebar and title-bar checks before paste/Enter
 - the final gate logs the send reason
+
+For short contact names that OCR misreads consistently, add a target-specific
+alias under `contact_ocr_aliases` in `config/settings.yaml`. The alias only
+applies to that exact target and still requires the target to be explicitly
+listed in `allowed_real_contacts`.

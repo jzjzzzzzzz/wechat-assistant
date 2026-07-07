@@ -215,3 +215,19 @@ def test_sender_classify_cli_requires_sender_name(monkeypatch, tmp_path, capsys)
     output = capsys.readouterr().out
     assert result == 2
     assert "Usage: sender-classify" in output
+
+
+def test_test_send_cli_uses_contact_override(monkeypatch, tmp_path):
+    calls = []
+    config = make_config(tmp_path)
+    config["test_message"] = "hello target"
+    monkeypatch.setattr("src.main.load_config", lambda: config)
+    monkeypatch.setattr(
+        "src.message_sender.send_message",
+        lambda cfg, target, message: calls.append((target, message, cfg["dry_run"])) or True,
+    )
+
+    result = run_command("test-send", contact="爱")
+
+    assert result == 0
+    assert calls == [("爱", "hello target", True)]

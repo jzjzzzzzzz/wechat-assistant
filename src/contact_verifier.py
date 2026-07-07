@@ -40,7 +40,7 @@ _MACOS_CHROME_HEIGHT_LOGICAL: int = 22  # skip macOS traffic-light chrome
 
 # Well-known aliases for built-in or generic contacts that WeChat may render
 # differently on the Mac client. Extend locally as needed.
-_NAME_ALIASES: dict[str, list[str]] = {
+_DEFAULT_NAME_ALIASES: dict[str, list[str]] = {
     "文件传输助手": ["文件传输助手", "File Transfer"],
     "File Transfer": ["File Transfer", "文件传输助手"],
 }
@@ -169,7 +169,28 @@ def _crop_and_ocr(
         return []
 
 
-def _name_in_texts(target: str, texts: list[str]) -> bool:
+def _aliases_for_target(target: str, config: dict[str, Any] | None = None) -> list[str]:
+    """Return OCR aliases for *target*.
+
+    Built-in aliases cover WeChat's file-transfer helper. Local one-off OCR
+    aliases, such as a specific short contact name being misread, live in
+    config["contact_ocr_aliases"] so real contacts are not hard-coded here.
+    """
+    aliases: list[str] = [target]
+    aliases.extend(_DEFAULT_NAME_ALIASES.get(target, []))
+
+    configured = (config or {}).get("contact_ocr_aliases", {})
+    if isinstance(configured, dict):
+        values = configured.get(target, [])
+        if isinstance(values, str):
+            values = [values]
+        if isinstance(values, list):
+            aliases.extend(str(value).strip() for value in values if str(value).strip())
+
+    return list(dict.fromkeys(alias for alias in aliases if alias.strip()))
+
+
+def _name_in_texts(target: str, texts: list[str], config: dict[str, Any] | None = None) -> bool:
     """Match *target* (and known aliases) against OCR text items.
 
     Strategy:
@@ -178,7 +199,7 @@ def _name_in_texts(target: str, texts: list[str]) -> bool:
       (prevents short names from false-matching random text).
       Tolerance: max(1, len // 6), e.g. "File Transfer" (13) → dist ≤ 2.
     """
-    candidates = _NAME_ALIASES.get(target, [target])
+    candidates = _aliases_for_target(target, config)
     for candidate in candidates:
         c_lower = candidate.strip().lower()
         c_len = len(c_lower)
@@ -187,6 +208,13 @@ def _name_in_texts(target: str, texts: list[str]) -> bool:
             item_lower = item.strip().lower()
             # Always: exact substring
             if c_lower in item_lower:
+                if candidate != target:
+                    LOGGER.info(
+                        "OCR alias matched target '%s': alias='%s' text='%s'",
+                        target,
+                        candidate,
+                        item,
+                    )
                 return True
             # Fuzzy only for longer names to avoid short-name false positives.
             if c_len > 3:
@@ -228,7 +256,7 @@ def _check_region(
     ocr_func: Callable[[str, dict[str, Any]], list[dict[str, Any]]] | None = None,
 ) -> RegionResult:
     texts = _crop_and_ocr(screenshot_path, box, config, region_name, ocr_func)
-    found = _name_in_texts(target, texts)
+    found = _name_in_texts(target, texts, config)
     msg = (
         f"Region '{region_name}': {'PASS' if found else 'FAIL'} "
         f"— '{target}' {'found' if found else 'NOT found'} in {len(texts)} text item(s)."
@@ -304,7 +332,7 @@ def verify_active_contact(
             runner = ocr_func or ocr_from_path
             results = runner(screenshot_path, config)
             texts = [str(r.get("text", "")) for r in results]
-            found = _name_in_texts(target, texts)
+            found = _name_in_texts(target, texts, config)
             pseudo = RegionResult(
                 name="full_screenshot",
                 found=found,

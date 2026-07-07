@@ -14,6 +14,7 @@ from PIL import Image
 from src.contact_verifier import (
     ContactVerifyResult,
     RegionResult,
+    _aliases_for_target,
     _get_region_boxes,
     _levenshtein,
     _name_in_texts,
@@ -55,6 +56,18 @@ def test_name_in_texts_not_found():
 
 def test_name_in_texts_empty():
     assert _name_in_texts("Sample Contact", []) is False
+
+
+def test_name_in_texts_uses_configured_target_specific_alias():
+    config = {"contact_ocr_aliases": {"爱": ["岌"]}}
+    assert _name_in_texts("爱", ["岌"], config) is True
+    assert _name_in_texts("Alice", ["岌"], config) is False
+
+
+def test_aliases_for_target_does_not_hardcode_real_contacts():
+    config = {"contact_ocr_aliases": {"爱": ["岌"]}}
+    assert _aliases_for_target("爱", config) == ["爱", "岌"]
+    assert _aliases_for_target("Alice", config) == ["Alice"]
 
 
 # ── _levenshtein ───────────────────────────────────────────────────────────────
@@ -253,6 +266,61 @@ def test_verify_uses_injected_ocr_for_regions(tmp_path: Path):
 
     assert result.ok is True
     assert ocr_func.call_count == 2
+
+
+def test_verify_accepts_configured_title_bar_alias_for_explicit_target(tmp_path: Path):
+    img = _make_image(tmp_path, size=(3024, 1964))
+    screenshot_func = MagicMock(return_value=str(img))
+
+    def ocr_func(image_path: str, config: dict[str, Any]) -> list[dict[str, Any]]:
+        if "sidebar" in image_path:
+            return [{"text": "爱", "confidence": 0.95}]
+        if "title_bar" in image_path:
+            return [{"text": "岌", "confidence": 0.95}]
+        return []
+
+    with (
+        patch("src.contact_verifier.get_wechat_window_rect", return_value=(0, 0, 800, 600)),
+        patch("src.contact_verifier._screen_scale_factor", return_value=1.0),
+    ):
+        result = verify_active_contact(
+            {"contact_ocr_aliases": {"爱": ["岌"]}},
+            "爱",
+            screenshot_func,
+            ocr_func,
+            retries=0,
+        )
+
+    assert result.ok is True
+    assert result.sidebar is not None and result.sidebar.found is True
+    assert result.title_bar is not None and result.title_bar.found is True
+
+
+def test_verify_rejects_title_bar_alias_for_other_targets(tmp_path: Path):
+    img = _make_image(tmp_path, size=(3024, 1964))
+    screenshot_func = MagicMock(return_value=str(img))
+
+    def ocr_func(image_path: str, config: dict[str, Any]) -> list[dict[str, Any]]:
+        if "sidebar" in image_path:
+            return [{"text": "Alice", "confidence": 0.95}]
+        if "title_bar" in image_path:
+            return [{"text": "岌", "confidence": 0.95}]
+        return []
+
+    with (
+        patch("src.contact_verifier.get_wechat_window_rect", return_value=(0, 0, 800, 600)),
+        patch("src.contact_verifier._screen_scale_factor", return_value=1.0),
+    ):
+        result = verify_active_contact(
+            {"contact_ocr_aliases": {"爱": ["岌"]}},
+            "Alice",
+            screenshot_func,
+            ocr_func,
+            retries=0,
+        )
+
+    assert result.ok is False
+    assert result.title_bar is not None and result.title_bar.found is False
 
 
 # ── send_message integration ───────────────────────────────────────────────────

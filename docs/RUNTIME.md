@@ -253,21 +253,33 @@ python -m src.main auto-reply-daemon --dry-run
 
 The daemon polls OL/OFF every pass and again before executing a ready dry-run action.
 
-## Safe File Transfer Real-send Test
+## Safe Real-send Test
 
-Keep real sending disabled until you explicitly test `文件传输助手`.
+Keep real sending disabled until you explicitly run a forced real-send test.
 
 Minimum config conditions for a future real-send test:
 
 - `dry_run: false`
 - `auto_reply.dry_run: false`
 - `allow_real_send: true`
-- `allowed_real_contacts` contains only `文件传输助手` / `File Transfer` unless a future explicit whitelist is intended
+- `allowed_real_contacts` contains the exact target, such as `文件传输助手` / `File Transfer` or `爱`
 - owner status says `offline` / `OFF`
 - Dock unread safety confirms a WeChat red unread badge when enabled
 - sender classification is private, not group
+- WeChat is confirmed frontmost before `⌘F`
+- the opened chat is OCR-verified in both sidebar and title-bar regions before paste/Enter
 
-Do not test real sends against normal contacts or groups.
+If EasyOCR consistently misreads a short title bar name, add the correction to
+`contact_ocr_aliases`. This does not bypass confirmation; it only lets the title
+bar verifier recognize a known OCR shape for the exact requested target.
+
+Manual one-off test command:
+
+```bash
+python -m src.main test-send --force-send --contact 爱
+```
+
+Do not test real sends against groups.
 
 ## Confirming Blocks
 

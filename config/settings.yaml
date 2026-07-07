@@ -9,6 +9,14 @@ test_message: "WeChat Assistant test message"
 allowed_real_contacts:
   - "File Transfer"
   - "文件传输助手"
+  - "爱"
+
+# Local OCR aliases for explicit real-send target verification.
+# Example: EasyOCR may read the one-character title "爱" as "岌" in the title bar.
+# Aliases are only used for the matching target and do not enable sending by themselves.
+contact_ocr_aliases:
+  "爱":
+    - "岌"
 
 wechat_app_name: "WeChat"
 screenshot_dir: "screenshots"

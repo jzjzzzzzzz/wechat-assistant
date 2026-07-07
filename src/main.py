@@ -54,7 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--contact",
         default=None,
-        help="Contact name to force-send birthday message to (send-birthday only).",
+        help="Contact name for test-send or forced birthday send.",
     )
     parser.add_argument(
         "--force-send",
@@ -158,8 +158,11 @@ def run_command(
         return 0 if path else 1
 
     if command == "test-send":
-        from src.message_sender import send_test_message
+        from src.message_sender import send_message, send_test_message
 
+        if contact:
+            message = str(config.get("test_message", "WeChat Assistant test message"))
+            return 0 if send_message(config, contact, message) else 1
         return 0 if send_test_message(config) else 1
 
     if command == "ocr":
