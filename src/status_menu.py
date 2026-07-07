@@ -15,10 +15,20 @@ from src.owner_status import get_owner_status, set_owner_status, toggle_owner_st
 
 
 LOGGER = logging.getLogger(__name__)
+DEFAULT_REFRESH_SECONDS = 1.0
 
 
 def menu_title_for_status(status: str) -> str:
     return "🟢 OL" if status == "online" else "🔴 OFF"
+
+
+def status_menu_refresh_seconds(config: dict[str, Any]) -> float:
+    owner = config.get("owner", {}) if isinstance(config.get("owner"), dict) else {}
+    try:
+        value = float(owner.get("status_menu_refresh_seconds", DEFAULT_REFRESH_SECONDS))
+    except (TypeError, ValueError):
+        return DEFAULT_REFRESH_SECONDS
+    return min(10.0, max(0.25, value))
 
 
 def print_cli_fallback() -> None:
@@ -51,6 +61,7 @@ def status_menu_check(config: dict[str, Any]) -> int:
     print(f"status source: {status.source}")
     print(f"updated_at: {status.updated_at.isoformat(timespec='seconds') if status.updated_at else 'none'}")
     print(f"expected menu title: {menu_title_for_status(status.status)}")
+    print(f"refresh_seconds: {status_menu_refresh_seconds(config):.2f}")
     print(f"GUI loop would start: {rumps_available}")
     return 0 if rumps_available else 1
 
@@ -99,6 +110,8 @@ def run_status_menu(config: dict[str, Any]) -> int:
             expected_title = menu_title_for_status(current.status)
             super().__init__("WeChat Assistant", title=expected_title, quit_button=None)
             self.title = expected_title
+            self._last_status = current.status
+            self._last_title = expected_title
             self.menu = [
                 rumps.MenuItem("Set Online", callback=self.set_online),
                 rumps.MenuItem("Set Offline", callback=self.set_offline),
@@ -110,12 +123,19 @@ def run_status_menu(config: dict[str, Any]) -> int:
             timer_class = getattr(rumps, "Timer", None)
             self._refresh_timer = None
             if timer_class is not None:
-                self._refresh_timer = timer_class(self.refresh_title, 2)
+                self._refresh_timer = timer_class(self.refresh_title, status_menu_refresh_seconds(config))
                 self._refresh_timer.start()
 
         def refresh_title(self, *_args: Any) -> None:
             try:
-                self.title = menu_title_for_status(get_owner_status(config).status)
+                status = get_owner_status(config).status
+                title = menu_title_for_status(status)
+                # Assign every tick; rumps forwards the setter to the NSStatusBar item.
+                self.title = title
+                if status != self._last_status or title != self._last_title:
+                    LOGGER.info("status-menu title changed: %s -> %s", self._last_title, title)
+                    self._last_status = status
+                    self._last_title = title
             except Exception as exc:
                 LOGGER.warning("status-menu title refresh failed safely: %s", exc)
 
@@ -140,9 +160,11 @@ def run_status_menu(config: dict[str, Any]) -> int:
         expected_title = menu_title_for_status(current.status)
         print("Starting macOS menu bar app...")
         print(f"Expected menu title: {expected_title}")
+        print(f"Refresh interval: {status_menu_refresh_seconds(config):.2f}s")
         print("Look near Wi-Fi / battery / clock in the top-right menu bar.")
         app = WeChatAssistantStatusMenu()
         app.run()
+        LOGGER.warning("status-menu GUI loop exited unexpectedly.")
         return 0
     except Exception as exc:
         print("Could not start macOS menu bar app.")

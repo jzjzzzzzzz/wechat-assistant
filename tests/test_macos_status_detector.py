@@ -12,6 +12,7 @@ from src.macos_status_detector import (
     MacosStatusDetection,
     MacosStatusWatcher,
     _classify_text,
+    _capture_region,
     _status_to_db_value,
     detect_macos_status,
 )
@@ -61,6 +62,28 @@ def test_classify_offline_token_case_insensitive():
     assert _classify_text(["off"]) == ("inactive", "off")
 
 
+def test_classify_ol_with_clock_text_returns_active():
+    status, text = _classify_text(["🟢 OL 10:32"])
+    assert status == "active"
+    assert text == "🟢 OL 10:32"
+
+
+def test_classify_off_with_clock_text_returns_inactive():
+    status, text = _classify_text(["🔴 OFF 10:32"])
+    assert status == "inactive"
+    assert text == "🔴 OFF 10:32"
+
+
+def test_classify_online_with_neighbor_text_returns_active():
+    status, text = _classify_text(["WA ONLINE Tue 10:32"])
+    assert status == "active"
+    assert text == "WA ONLINE Tue 10:32"
+
+
+def test_classify_control_center_does_not_match_ol_substring():
+    assert _classify_text(["Control Center", "Bluetooth", "10:32"]) == ("unknown", "")
+
+
 def test_classify_green_emoji_ol_returns_active():
     """🟢 OL with leading emoji should be stripped and matched."""
     status, text = _classify_text(["🟢 OL"])
@@ -84,6 +107,19 @@ def test_classify_conflicting_tokens_returns_unknown():
     """When both OL and OFF are present, status is ambiguous and must block."""
     status, _ = _classify_text(["OL", "OFF"])
     assert status == "unknown"
+
+
+def test_capture_region_defaults_to_wide_top_menu_bar_strip():
+    assert _capture_region(1512, {}) == (112, 0, 1400, 30)
+
+
+def test_capture_region_uses_configured_width_and_height():
+    assert _capture_region(1512, {"macos_status": {"capture_width": 600, "capture_height": 34}}) == (
+        912,
+        0,
+        600,
+        34,
+    )
 
 
 # ── _status_to_db_value mapping ───────────────────────────────────────────────

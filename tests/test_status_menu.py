@@ -20,6 +20,16 @@ def test_offline_title_is_visible_short_text():
     assert status_menu.menu_title_for_status("offline") == "🔴 OFF"
 
 
+def test_status_menu_refresh_seconds_defaults_to_one_second():
+    assert status_menu.status_menu_refresh_seconds({}) == 1.0
+
+
+def test_status_menu_refresh_seconds_uses_config_and_clamps():
+    assert status_menu.status_menu_refresh_seconds({"owner": {"status_menu_refresh_seconds": 0.01}}) == 0.25
+    assert status_menu.status_menu_refresh_seconds({"owner": {"status_menu_refresh_seconds": 2}}) == 2.0
+    assert status_menu.status_menu_refresh_seconds({"owner": {"status_menu_refresh_seconds": 99}}) == 10.0
+
+
 def test_menu_actions_call_owner_status_service_functions(monkeypatch):
     calls = []
     config = {"database_path": "unused.sqlite3"}
@@ -101,6 +111,7 @@ def test_status_menu_check_exits_without_gui_loop(monkeypatch, tmp_path, capsys)
     assert "rumps import: ok" in output
     assert "rumps version: 1.0-test" in output
     assert "expected menu title: 🟢 OL" in output
+    assert "refresh_seconds: 1.00" in output
     assert "GUI loop would start: True" in output
 
 

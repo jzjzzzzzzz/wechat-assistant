@@ -54,7 +54,14 @@ scripts/stop_status_menu.sh
 
 The menu app only reads and writes `owner_status`. It does not scan WeChat, run OCR, send messages, click chats, type, or press Enter.
 
-While running, the menu app refreshes its title from the database every 2 seconds. If you change status with `owner-status set online/offline`, the top-right label should follow shortly.
+While running, the menu app refreshes its title from the database every second by default:
+
+```yaml
+owner:
+  status_menu_refresh_seconds: 1
+```
+
+If you change status with `owner-status set online/offline`, the top-right label should follow on the next refresh tick.
 
 ## Dry-run Monitor
 
@@ -84,6 +91,47 @@ scripts/stop_monitor.sh
 
 The monitor stays dry-run only. It may detect candidates and print/log `WOULD AUTO REPLY`, but it does not send messages.
 
+This script is useful for manual observation and bounded soak tests. For a process that survives terminal exits and restarts at login, use the LaunchAgent setup below.
+
+## Long-Running LaunchAgents
+
+Install the long-running runtime agents:
+
+```bash
+scripts/install_runtime_launchagents.sh
+```
+
+This installs two user LaunchAgents:
+
+- `com.wechat-assistant.status-menu`: runs `python -u -m src.main status-menu`
+- `com.wechat-assistant.auto-reply-daemon`: runs `python -u -m src.main auto-reply-daemon --dry-run`
+
+The installer refuses to run unless the config is still safe:
+
+- `dry_run: true`
+- `auto_reply.dry_run: true`
+- `allow_real_send: false`
+
+Remove both runtime agents:
+
+```bash
+scripts/uninstall_runtime_launchagents.sh
+```
+
+Inspect launchd state:
+
+```bash
+launchctl print gui/$UID/com.wechat-assistant.status-menu
+launchctl print gui/$UID/com.wechat-assistant.auto-reply-daemon
+```
+
+LaunchAgent logs:
+
+- status menu: `logs/status_menu_launchagent.log`
+- dry-run daemon: `logs/auto_reply_daemon_launchagent.log`
+
+The LaunchAgent daemon is dry-run only. It does not enable real sending.
+
 ## Status OCR Check
 
 Check the live top-right menu-bar status without scanning WeChat:
@@ -102,6 +150,14 @@ safe_to_auto_reply: True
 ```
 
 If it prints `raw_status: unknown`, the safe behavior is no auto-reply. Enable Screen Recording permission or make the iBar/status-menu item visible.
+
+The status detector captures only a shallow top menu-bar strip. By default it reads the rightmost 1400px so iBar can keep `🟢 OL` / `🔴 OFF` visible even when it is not directly next to the clock:
+
+```yaml
+macos_status:
+  capture_width: 1400
+  capture_height: 34
+```
 
 ## Runtime Status
 

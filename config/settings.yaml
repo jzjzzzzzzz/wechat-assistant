@@ -68,6 +68,7 @@ owner:
   status_default: "online"
   offline_reply_immediate: true
   status_menu_enabled: true
+  status_menu_refresh_seconds: 1
 
 notification_ocr:
   skip_menu_bar_pixels: 28
@@ -81,6 +82,10 @@ notification_ocr:
     - "TEST WA"
     - "IBAR"
     - "iBar"
+
+macos_status:
+  capture_width: 1400
+  capture_height: 34
 
 unread_scan:
   enable_scroll_scan: false

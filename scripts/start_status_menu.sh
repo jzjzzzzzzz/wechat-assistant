@@ -5,6 +5,7 @@ PROJECT_DIR="${WECHAT_ASSISTANT_PROJECT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 PID_FILE="$PROJECT_DIR/run/status_menu.pid"
 LOG_FILE="$PROJECT_DIR/logs/status_menu.log"
 MARKER="src.main status-menu"
+STARTUP_WAIT_SECONDS="${WECHAT_ASSISTANT_STARTUP_WAIT_SECONDS:-3}"
 
 mkdir -p "$PROJECT_DIR/run" "$PROJECT_DIR/logs"
 
@@ -70,7 +71,7 @@ cd "$PROJECT_DIR"
 nohup "$PYTHON" -u -m src.main status-menu >> "$LOG_FILE" 2>&1 &
 pid=$!
 echo "$pid" > "$PID_FILE"
-sleep 1
+sleep "$STARTUP_WAIT_SECONDS"
 
 if kill -0 "$pid" 2>/dev/null && pid_matches "$pid"; then
     echo "status-menu started: pid=$pid"

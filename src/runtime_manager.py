@@ -63,6 +63,15 @@ MONITOR_SPEC = RuntimeProcessSpec(
     process_marker="src.main auto-reply-monitor",
 )
 
+STATUS_MENU_LAUNCHAGENT_LABEL = "com.wechat-assistant.status-menu"
+AUTO_REPLY_DAEMON_LAUNCHAGENT_LABEL = "com.wechat-assistant.auto-reply-daemon"
+STATUS_MENU_LAUNCHAGENT_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{STATUS_MENU_LAUNCHAGENT_LABEL}.plist"
+AUTO_REPLY_DAEMON_LAUNCHAGENT_PLIST = (
+    Path.home() / "Library" / "LaunchAgents" / f"{AUTO_REPLY_DAEMON_LAUNCHAGENT_LABEL}.plist"
+)
+STATUS_MENU_LAUNCHAGENT_LOG = PROJECT_ROOT / "logs" / "status_menu_launchagent.log"
+AUTO_REPLY_DAEMON_LAUNCHAGENT_LOG = PROJECT_ROOT / "logs" / "auto_reply_daemon_launchagent.log"
+
 
 def read_pid_file(path: str | Path) -> int | None:
     pid_path = Path(path)
@@ -289,6 +298,16 @@ def format_runtime_status(config: dict[str, Any]) -> str:
             lines.append(f"    note: {status.note}")
         lines.append(f"    pid_file: {status.pid_file}")
         lines.append(f"    log_file: {status.log_file}")
+
+    lines.extend(
+        [
+            "LaunchAgents:",
+            f"  {STATUS_MENU_LAUNCHAGENT_LABEL}: {STATUS_MENU_LAUNCHAGENT_PLIST}",
+            f"    log_file: {STATUS_MENU_LAUNCHAGENT_LOG}",
+            f"  {AUTO_REPLY_DAEMON_LAUNCHAGENT_LABEL}: {AUTO_REPLY_DAEMON_LAUNCHAGENT_PLIST}",
+            f"    log_file: {AUTO_REPLY_DAEMON_LAUNCHAGENT_LOG}",
+        ]
+    )
 
     lines.extend(
         [

@@ -33,8 +33,8 @@ LOGGER = logging.getLogger(__name__)
 
 # Pixels from the top of the screen to capture (macOS menu bar height ≈ 24-28 px).
 _MENU_BAR_HEIGHT = 30
-# Width of the right-side strip to inspect for status labels.
-_CAPTURE_WIDTH = 400
+# Width of the menu-bar strip to inspect for status labels.
+_CAPTURE_WIDTH = 1400
 
 # Text tokens that indicate the system is ACTIVE (OL / Online).
 _ONLINE_TOKENS: frozenset[str] = frozenset({
@@ -79,6 +79,17 @@ def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip())
 
 
+def _tokenize_status_text(text: str) -> list[str]:
+    """Return coarse OCR tokens without matching OL inside unrelated words.
+
+    OCR sometimes returns the menu item together with nearby clock text, e.g.
+    "OL 10:32" or "WA ONLINE Tue".  We accept exact status tokens inside that
+    text, but we do not treat substrings such as the "ol" in "Control" as OL.
+    """
+    stripped = re.sub(r"^[🟢🔴⚪🟡\s]+", "", _normalize(text)).strip()
+    return re.findall(r"[A-Za-z]+|[\u4e00-\u9fff]+", stripped)
+
+
 def _classify_text(texts: list[str]) -> tuple[str, str]:
     """Return (raw_status, matched_text) from a list of OCR strings.
 
@@ -91,14 +102,32 @@ def _classify_text(texts: list[str]) -> tuple[str, str]:
         cleaned = _normalize(raw)
         # Strip leading emoji (🟢 🔴 ⚪) and whitespace.
         stripped = re.sub(r"^[🟢🔴⚪🟡\s]+", "", cleaned).strip()
+        tokens = [token.upper() for token in _tokenize_status_text(cleaned)]
+        token_set = set(tokens)
+        upper_stripped = stripped.upper()
+        upper_cleaned = cleaned.upper()
 
         for token in _ONLINE_TOKENS:
-            if stripped.upper() == token.upper() or cleaned.upper() == token.upper():
+            upper_token = token.upper()
+            if (
+                upper_stripped == upper_token
+                or upper_cleaned == upper_token
+                or upper_token in token_set
+                or (upper_token in {"WA ONLINE", "WA OL"} and upper_token in upper_cleaned)
+                or (token in {"在线"} and token in cleaned and "离线" not in cleaned)
+            ):
                 matches.append(("active", cleaned))
                 break
 
         for token in _OFFLINE_TOKENS:
-            if stripped.upper() == token.upper() or cleaned.upper() == token.upper():
+            upper_token = token.upper()
+            if (
+                upper_stripped == upper_token
+                or upper_cleaned == upper_token
+                or upper_token in token_set
+                or (upper_token in {"WA OFFLINE", "WA OFF"} and upper_token in upper_cleaned)
+                or (token in {"离线"} and token in cleaned)
+            ):
                 matches.append(("inactive", cleaned))
                 break
 
@@ -120,6 +149,24 @@ def _status_to_db_value(raw_status: str) -> str:
     return "unknown"
 
 
+def _capture_region(screen_width: int, config: dict[str, Any]) -> tuple[int, int, int, int]:
+    """Return the top-right menu-bar region used for status OCR.
+
+    We capture a wide but shallow strip. It stays within the macOS menu bar
+    instead of OCRing app content, while giving iBar enough room to place the
+    short "OL"/"OFF" status item away from the clock.
+    """
+    status_config = config.get("macos_status", {})
+    if not isinstance(status_config, dict):
+        status_config = {}
+    width = int(status_config.get("capture_width", _CAPTURE_WIDTH))
+    height = int(status_config.get("capture_height", _MENU_BAR_HEIGHT))
+    width = max(120, min(int(screen_width), width))
+    height = max(20, min(60, height))
+    x = max(0, int(screen_width) - width)
+    return x, 0, width, height
+
+
 def _capture_menu_bar_screenshot(config: dict[str, Any]) -> str | None:
     """Capture a narrow strip of the top-right menu bar for OCR."""
     screenshot_dir = Path(config.get("screenshot_dir", "screenshots"))
@@ -134,8 +181,7 @@ def _capture_menu_bar_screenshot(config: dict[str, Any]) -> str | None:
         import pyautogui  # type: ignore
 
         screen_w, _screen_h = pyautogui.size()
-        x = max(0, int(screen_w) - _CAPTURE_WIDTH)
-        region = (x, 0, _CAPTURE_WIDTH, _MENU_BAR_HEIGHT)
+        region = _capture_region(int(screen_w), config)
         image = pyautogui.screenshot(region=region)
         image.save(output_path)
         LOGGER.debug(
