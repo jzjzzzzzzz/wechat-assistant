@@ -831,6 +831,7 @@ def _background_config(config: dict[str, Any]) -> dict[str, Any]:
 def _unread_scan_config(config: dict[str, Any]) -> dict[str, Any]:
     defaults = {
         "enable_scroll_scan": False,
+        "ensure_wechat_frontmost_for_scroll": False,
         "max_scroll_pages": 5,
         "scroll_amount": -5,
         "scroll_pause_seconds": 0.5,
@@ -844,6 +845,7 @@ def _unread_scan_config(config: dict[str, Any]) -> dict[str, Any]:
     if isinstance(raw, dict):
         defaults.update(raw)
     defaults["enable_scroll_scan"] = bool(defaults.get("enable_scroll_scan", False))
+    defaults["ensure_wechat_frontmost_for_scroll"] = bool(defaults.get("ensure_wechat_frontmost_for_scroll", False))
     defaults["max_scroll_pages"] = max(0, int(defaults.get("max_scroll_pages", 5)))
     defaults["scroll_amount"] = int(defaults.get("scroll_amount", -5))
     defaults["scroll_pause_seconds"] = max(0.0, float(defaults.get("scroll_pause_seconds", 0.5)))
@@ -906,6 +908,7 @@ def _run_optional_scroll_scan(
     *,
     window: WeChatWindow | None,
     page_scan_func: Callable[[], list[AutoReplyEvent]],
+    before_page_func: Callable[[], None] | None = None,
     scroll_func: Callable[..., Any] | None = None,
     sleep_func: Callable[[float], None] = time.sleep,
 ) -> list[AutoReplyEvent]:
@@ -942,6 +945,8 @@ def _run_optional_scroll_scan(
             LOGGER.info("Scroll scan page=%s amount=%s point=%s", page + 1, amount, point)
             if pause:
                 sleep_func(pause)
+            if before_page_func is not None:
+                before_page_func()
             page_events = page_scan_func()
             events = _merge_unique_events(events, page_events)
             if page_events and stop_on_first:
@@ -1258,6 +1263,17 @@ def scan_unread_events(
             ):
                 no_scroll_config = _without_scroll_scan(config)
 
+                def before_scroll_page() -> None:
+                    if not unread_config.get("ensure_wechat_frontmost_for_scroll", False):
+                        return
+                    app_name = str(config.get("wechat_app_name", "WeChat"))
+                    activation = activate_func(app_name, wait_seconds=0.2, retry_count=1)
+                    if hasattr(activation, "ok") and not activation.ok:
+                        LOGGER.warning(
+                            "Scroll scan foreground check failed safely: %s",
+                            getattr(activation, "message", "activation failed"),
+                        )
+
                 def page_scan() -> list[AutoReplyEvent]:
                     return scan_unread_events(
                         no_scroll_config,
@@ -1278,6 +1294,7 @@ def scan_unread_events(
                     config,
                     window=result.window,
                     page_scan_func=page_scan,
+                    before_page_func=before_scroll_page,
                     scroll_func=scroll_func,
                     sleep_func=sleep_func,
                 )

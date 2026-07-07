@@ -26,6 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
             "manual-test",
             "auto-reply-plan",
             "auto-reply-daemon",
+            "auto-reply-drain",
             "notification-check",
             "unread-scan",
             "background-scan",
@@ -88,6 +89,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override auto-reply delay minutes for this run only.",
     )
+    parser.add_argument(
+        "--max-passes",
+        type=int,
+        default=None,
+        help="Maximum detection/send passes for auto-reply-drain.",
+    )
     return parser
 
 
@@ -107,6 +114,7 @@ def run_command(
     interval_seconds: float | None = None,
     minutes: float = 60.0,
     delay_minutes: float | None = None,
+    max_passes: int | None = None,
 ) -> int:
     try:
         config = load_config()
@@ -507,6 +515,21 @@ def run_command(
         daemon.run_forever()
         return 0
 
+    if command == "auto-reply-drain":
+        from src.auto_reply_drain import print_drain_summary, run_auto_reply_drain
+
+        try:
+            summary = run_auto_reply_drain(
+                config,
+                max_passes=max_passes or 10,
+                interval_seconds=interval_seconds if interval_seconds is not None else 2.0,
+            )
+        except ValueError as exc:
+            print(f"auto-reply-drain blocked: {exc}")
+            return 2
+        print_drain_summary(summary)
+        return 0
+
     if command == "auto-reply-monitor":
         from src.auto_reply_monitor import print_monitor_summary, run_auto_reply_monitor
 
@@ -538,6 +561,7 @@ def main(argv: list[str] | None = None) -> int:
         interval_seconds=args.interval_seconds,
         minutes=args.minutes,
         delay_minutes=args.delay_minutes,
+        max_passes=args.max_passes,
         command_args=args.command_args,
     )
 

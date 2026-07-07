@@ -6,6 +6,7 @@ from src.unread_scanner import (
     ChatListRow,
     UnreadBadge,
     _associate_badges_with_ocr_rows,
+    _run_optional_scroll_scan,
     associate_badges_with_rows,
     detect_unread_badges,
     detect_unread_badges_with_diagnostics,
@@ -596,3 +597,21 @@ def test_scroll_scan_runs_only_when_explicitly_enabled():
     assert len(scroll_calls) == 2
     assert scroll_calls[0][0][0] == -5
     assert scroll_calls[1][0][0] == 5
+
+
+def test_scroll_scan_runs_before_page_hook_when_configured():
+    config = make_config()
+    config["unread_scan"] = dict(config["unread_scan"], enable_scroll_scan=True, max_scroll_pages=1)
+    calls = []
+
+    events = _run_optional_scroll_scan(
+        config,
+        window=make_window(),
+        page_scan_func=lambda: calls.append("page_scan") or [],
+        before_page_func=lambda: calls.append("before_page"),
+        scroll_func=lambda amount, **kwargs: calls.append(f"scroll:{amount}"),
+        sleep_func=lambda seconds: None,
+    )
+
+    assert events == []
+    assert calls == ["scroll:-5", "before_page", "page_scan", "scroll:5"]
