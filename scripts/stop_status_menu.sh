@@ -33,19 +33,19 @@ if [[ -f "$PID_FILE" ]]; then
     if [[ ! "$pid" =~ ^[0-9]+$ ]]; then
         echo "status-menu pid file is invalid; removing stale pid file."
         rm -f "$PID_FILE"
-        exit 0
-    fi
-    if ! kill -0 "$pid" 2>/dev/null; then
+        pid=""
+    elif ! kill -0 "$pid" 2>/dev/null; then
         echo "status-menu pid file is stale; removing stale pid file."
         rm -f "$PID_FILE"
-        exit 0
-    fi
-    if ! pid_matches "$pid"; then
+        pid=""
+    elif ! pid_matches "$pid"; then
         echo "status-menu pid $pid does not match this project command; removing stale pid file."
         rm -f "$PID_FILE"
-        exit 0
+        pid=""
     fi
-else
+fi
+
+if [[ -z "$pid" ]]; then
     pid="$(find_running_pid || true)"
 fi
 

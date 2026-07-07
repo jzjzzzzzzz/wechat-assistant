@@ -46,6 +46,22 @@ def test_auto_reply_daemon_launchagent_is_dry_run_only():
     assert "--dry-run" in args
 
 
+def test_status_window_launchagent_runs_only_status_window():
+    data = _load_template("com.wechat-assistant.status-window.plist.template")
+
+    assert data["Label"] == "com.wechat-assistant.status-window"
+    assert data["RunAtLoad"] is True
+    assert data["KeepAlive"] is True
+    assert data["ProgramArguments"] == [
+        "/tmp/wechat-assistant/.venv/bin/python",
+        "-u",
+        "-m",
+        "src.main",
+        "status-window",
+    ]
+    assert "auto-reply" not in " ".join(data["ProgramArguments"])
+
+
 def test_install_runtime_launchagents_refuses_unsafe_config():
     text = (PROJECT_ROOT / "scripts" / "install_runtime_launchagents.sh").read_text(encoding="utf-8")
 
@@ -53,6 +69,7 @@ def test_install_runtime_launchagents_refuses_unsafe_config():
     assert "dry_run: true" in text
     assert "auto_reply.dry_run: true" in text
     assert "allow_real_send: false" in text
+    assert "status-window" in text
     assert "auto-reply-daemon" in text
     assert "--dry-run" in text
 
@@ -61,6 +78,7 @@ def test_uninstall_runtime_launchagents_removes_only_runtime_labels():
     text = (PROJECT_ROOT / "scripts" / "uninstall_runtime_launchagents.sh").read_text(encoding="utf-8")
 
     assert "com.wechat-assistant.status-menu" in text
+    assert "com.wechat-assistant.status-window" in text
     assert "com.wechat-assistant.auto-reply-daemon" in text
     assert "bootout" in text
     assert "birthday" not in text

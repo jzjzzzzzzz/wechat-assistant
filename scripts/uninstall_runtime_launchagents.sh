@@ -5,8 +5,10 @@ LAUNCHAGENTS_DIR="${WECHAT_ASSISTANT_LAUNCHAGENTS_DIR:-$HOME/Library/LaunchAgent
 DOMAIN="${WECHAT_ASSISTANT_LAUNCHCTL_DOMAIN:-gui/$UID}"
 
 STATUS_LABEL="com.wechat-assistant.status-menu"
+STATUS_WINDOW_LABEL="com.wechat-assistant.status-window"
 DAEMON_LABEL="com.wechat-assistant.auto-reply-daemon"
 STATUS_TARGET="$LAUNCHAGENTS_DIR/$STATUS_LABEL.plist"
+STATUS_WINDOW_TARGET="$LAUNCHAGENTS_DIR/$STATUS_WINDOW_LABEL.plist"
 DAEMON_TARGET="$LAUNCHAGENTS_DIR/$DAEMON_LABEL.plist"
 
 remove_agent() {
@@ -19,6 +21,7 @@ remove_agent() {
 }
 
 remove_agent "$STATUS_LABEL" "$STATUS_TARGET"
+remove_agent "$STATUS_WINDOW_LABEL" "$STATUS_WINDOW_TARGET"
 remove_agent "$DAEMON_LABEL" "$DAEMON_TARGET"
 
 echo "Runtime LaunchAgents removed."

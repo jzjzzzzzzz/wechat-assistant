@@ -95,6 +95,7 @@ def test_runtime_status_formatting_includes_safety_and_paths(monkeypatch, tmp_pa
     assert "auto_reply.dry_run: True" in output
     assert "allow_real_send: False" in output
     assert "status-menu: running" in output
+    assert "status-window" in output
     assert "auto-reply-monitor: stopped" in output
     assert "LaunchAgents:" in output
     assert "com.wechat-assistant.auto-reply-daemon" in output

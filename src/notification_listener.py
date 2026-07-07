@@ -18,6 +18,8 @@ DEFAULT_MENU_BAR_NOISE_TEXTS = {
     "WA ONLINE",
     "WA OFFLINE",
     "TEST WA",
+    "LOCK",
+    "UNLOCK",
     "IBAR",
     "iBar",
 }

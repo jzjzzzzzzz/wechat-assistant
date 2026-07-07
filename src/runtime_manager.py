@@ -56,6 +56,12 @@ STATUS_MENU_SPEC = RuntimeProcessSpec(
     log_file=PROJECT_ROOT / "logs" / "status_menu.log",
     process_marker="src.main status-menu",
 )
+STATUS_WINDOW_SPEC = RuntimeProcessSpec(
+    name="status-window",
+    pid_file=PROJECT_ROOT / "run" / "status_window.pid",
+    log_file=PROJECT_ROOT / "logs" / "status_window.log",
+    process_marker="src.main status-window",
+)
 MONITOR_SPEC = RuntimeProcessSpec(
     name="auto-reply-monitor",
     pid_file=PROJECT_ROOT / "run" / "auto_reply_monitor.pid",
@@ -64,12 +70,15 @@ MONITOR_SPEC = RuntimeProcessSpec(
 )
 
 STATUS_MENU_LAUNCHAGENT_LABEL = "com.wechat-assistant.status-menu"
+STATUS_WINDOW_LAUNCHAGENT_LABEL = "com.wechat-assistant.status-window"
 AUTO_REPLY_DAEMON_LAUNCHAGENT_LABEL = "com.wechat-assistant.auto-reply-daemon"
 STATUS_MENU_LAUNCHAGENT_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{STATUS_MENU_LAUNCHAGENT_LABEL}.plist"
+STATUS_WINDOW_LAUNCHAGENT_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{STATUS_WINDOW_LAUNCHAGENT_LABEL}.plist"
 AUTO_REPLY_DAEMON_LAUNCHAGENT_PLIST = (
     Path.home() / "Library" / "LaunchAgents" / f"{AUTO_REPLY_DAEMON_LAUNCHAGENT_LABEL}.plist"
 )
 STATUS_MENU_LAUNCHAGENT_LOG = PROJECT_ROOT / "logs" / "status_menu_launchagent.log"
+STATUS_WINDOW_LAUNCHAGENT_LOG = PROJECT_ROOT / "logs" / "status_window_launchagent.log"
 AUTO_REPLY_DAEMON_LAUNCHAGENT_LOG = PROJECT_ROOT / "logs" / "auto_reply_daemon_launchagent.log"
 
 
@@ -262,7 +271,11 @@ def stop_runtime_process(
 
 
 def runtime_process_statuses() -> list[RuntimeProcessStatus]:
-    return [inspect_runtime_process(STATUS_MENU_SPEC), inspect_runtime_process(MONITOR_SPEC)]
+    return [
+        inspect_runtime_process(STATUS_MENU_SPEC),
+        inspect_runtime_process(STATUS_WINDOW_SPEC),
+        inspect_runtime_process(MONITOR_SPEC),
+    ]
 
 
 def _path_text(path: str | Path) -> str:
@@ -304,6 +317,8 @@ def format_runtime_status(config: dict[str, Any]) -> str:
             "LaunchAgents:",
             f"  {STATUS_MENU_LAUNCHAGENT_LABEL}: {STATUS_MENU_LAUNCHAGENT_PLIST}",
             f"    log_file: {STATUS_MENU_LAUNCHAGENT_LOG}",
+            f"  {STATUS_WINDOW_LAUNCHAGENT_LABEL}: {STATUS_WINDOW_LAUNCHAGENT_PLIST}",
+            f"    log_file: {STATUS_WINDOW_LAUNCHAGENT_LOG}",
             f"  {AUTO_REPLY_DAEMON_LAUNCHAGENT_LABEL}: {AUTO_REPLY_DAEMON_LAUNCHAGENT_PLIST}",
             f"    log_file: {AUTO_REPLY_DAEMON_LAUNCHAGENT_LOG}",
         ]
@@ -314,6 +329,7 @@ def format_runtime_status(config: dict[str, Any]) -> str:
             "Paths:",
             f"  app_log: {_path_text(config.get('log_file', 'logs/app.log'))}",
             f"  status_menu_log: {STATUS_MENU_SPEC.log_file}",
+            f"  status_window_log: {STATUS_WINDOW_SPEC.log_file}",
             f"  monitor_log: {MONITOR_SPEC.log_file}",
             f"  monitor_events_jsonl: {PROJECT_ROOT / 'logs' / 'auto_reply_events.jsonl'}",
             f"  database_path: {_path_text(config.get('database_path', 'data/wechat_assistant.sqlite3'))}",
@@ -329,6 +345,7 @@ def print_runtime_status(config: dict[str, Any]) -> None:
 def stop_all_runtime_processes() -> list[StopResult]:
     return [
         stop_runtime_process(STATUS_MENU_SPEC),
+        stop_runtime_process(STATUS_WINDOW_SPEC),
         stop_runtime_process(MONITOR_SPEC),
     ]
 

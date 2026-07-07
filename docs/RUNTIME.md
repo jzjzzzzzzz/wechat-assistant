@@ -63,6 +63,46 @@ owner:
 
 If you change status with `owner-status set online/offline`, the top-right label should follow on the next refresh tick.
 
+## OCR Status Window
+
+Because menu bar managers such as iBar may hide or delay-refresh third-party menu titles, the recommended OCR status source is the project's own transparent floating status control below iBar:
+
+```bash
+scripts/start_status_window.sh
+```
+
+The window displays large OCR-friendly text below the iBar area:
+
+- online: `OL`
+- offline: `OFF`
+
+Controls:
+
+- `OL` / `OFF` button: toggles owner status immediately.
+- `LOCK` / `UNLOCK` button: controls whether the window is locked in front of other windows.
+
+It refreshes from `owner_status` every second by default:
+
+```yaml
+owner:
+  status_window_enabled: true
+  status_window:
+    width: 220
+    height: 46
+    margin_right: 24
+    margin_top: 142
+    refresh_seconds: 1
+    locked_on_top: true
+```
+
+Stop it:
+
+```bash
+scripts/stop_status_window.sh
+```
+
+The status window only reads/writes local owner status. It does not scan WeChat, OCR WeChat, send messages, click chats, type, or press Enter.
+
 ## Dry-run Monitor
 
 Start the dry-run monitor:
@@ -101,9 +141,10 @@ Install the long-running runtime agents:
 scripts/install_runtime_launchagents.sh
 ```
 
-This installs two user LaunchAgents:
+This installs three user LaunchAgents:
 
 - `com.wechat-assistant.status-menu`: runs `python -u -m src.main status-menu`
+- `com.wechat-assistant.status-window`: runs `python -u -m src.main status-window`
 - `com.wechat-assistant.auto-reply-daemon`: runs `python -u -m src.main auto-reply-daemon --dry-run`
 
 The installer refuses to run unless the config is still safe:
@@ -128,6 +169,7 @@ launchctl print gui/$UID/com.wechat-assistant.auto-reply-daemon
 LaunchAgent logs:
 
 - status menu: `logs/status_menu_launchagent.log`
+- status window: `logs/status_window_launchagent.log`
 - dry-run daemon: `logs/auto_reply_daemon_launchagent.log`
 
 The LaunchAgent daemon is dry-run only. It does not enable real sending.
@@ -151,13 +193,18 @@ safe_to_auto_reply: True
 
 If it prints `raw_status: unknown`, the safe behavior is no auto-reply. Enable Screen Recording permission or make the iBar/status-menu item visible.
 
-The status detector captures only a shallow top menu-bar strip. By default it reads the rightmost 1400px so iBar can keep `🟢 OL` / `🔴 OFF` visible even when it is not directly next to the clock:
+The status detector captures only the expected `OL` / `OFF` button area. This avoids OCRing arbitrary application text behind the transparent window:
 
 ```yaml
 macos_status:
-  capture_width: 1400
-  capture_height: 34
+  capture_status_window_button: true
+  capture_padding_x: 8
+  capture_padding_y: 6
+  capture_width: 560
+  capture_height: 220
 ```
+
+`capture_width` and `capture_height` are fallback values used only if dedicated status-window button capture is disabled.
 
 ## Runtime Status
 

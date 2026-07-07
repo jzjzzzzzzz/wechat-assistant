@@ -69,6 +69,14 @@ owner:
   offline_reply_immediate: true
   status_menu_enabled: true
   status_menu_refresh_seconds: 1
+  status_window_enabled: true
+  status_window:
+    width: 220
+    height: 46
+    margin_right: 24
+    margin_top: 142
+    refresh_seconds: 1
+    locked_on_top: true
 
 notification_ocr:
   skip_menu_bar_pixels: 28
@@ -80,12 +88,17 @@ notification_ocr:
     - "WA ONLINE"
     - "WA OFFLINE"
     - "TEST WA"
+    - "LOCK"
+    - "UNLOCK"
     - "IBAR"
     - "iBar"
 
 macos_status:
-  capture_width: 1400
-  capture_height: 34
+  capture_status_window_button: true
+  capture_padding_x: 8
+  capture_padding_y: 6
+  capture_width: 560
+  capture_height: 220
 
 unread_scan:
   enable_scroll_scan: false

@@ -31,6 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
             "background-scan",
             "owner-status",
             "status-menu",
+            "status-window",
             "macos-status-check",
             "auto-reply-state",
             "auto-reply-monitor",
@@ -299,6 +300,15 @@ def run_command(
         if test:
             return run_status_menu_test()
         return run_status_menu(config)
+
+    if command == "status-window":
+        from src.status_window import run_status_window, run_status_window_test, status_window_check
+
+        if check:
+            return status_window_check(config)
+        if test:
+            return run_status_window_test(config)
+        return run_status_window(config)
 
     if command == "macos-status-check":
         from src.macos_status_detector import detect_macos_status

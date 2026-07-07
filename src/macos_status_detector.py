@@ -27,18 +27,23 @@ from pathlib import Path
 from typing import Any, Callable
 
 from src.owner_status import OwnerStatusStore, validate_owner_status
+from src.status_window import status_window_options
 
 
 LOGGER = logging.getLogger(__name__)
 
-# Pixels from the top of the screen to capture (macOS menu bar height ≈ 24-28 px).
-_MENU_BAR_HEIGHT = 30
-# Width of the menu-bar strip to inspect for status labels.
-_CAPTURE_WIDTH = 1400
+# Fallback pixels from the top of the screen to capture when dedicated status
+# window capture is disabled.
+_MENU_BAR_HEIGHT = 220
+# Fallback width of the menu-bar strip to inspect for status labels.
+_CAPTURE_WIDTH = 560
+_STATUS_BUTTON_PADDING_X = 8
+_STATUS_BUTTON_PADDING_Y = 6
 
 # Text tokens that indicate the system is ACTIVE (OL / Online).
 _ONLINE_TOKENS: frozenset[str] = frozenset({
     "OL",
+    "0L",
     "WA ONLINE",
     "WA OL",
     "ONLINE",
@@ -87,7 +92,7 @@ def _tokenize_status_text(text: str) -> list[str]:
     text, but we do not treat substrings such as the "ol" in "Control" as OL.
     """
     stripped = re.sub(r"^[🟢🔴⚪🟡\s]+", "", _normalize(text)).strip()
-    return re.findall(r"[A-Za-z]+|[\u4e00-\u9fff]+", stripped)
+    return re.findall(r"[A-Za-z0-9]+|[\u4e00-\u9fff]+", stripped)
 
 
 def _classify_text(texts: list[str]) -> tuple[str, str]:
@@ -149,22 +154,123 @@ def _status_to_db_value(raw_status: str) -> str:
     return "unknown"
 
 
-def _capture_region(screen_width: int, config: dict[str, Any]) -> tuple[int, int, int, int]:
-    """Return the top-right menu-bar region used for status OCR.
-
-    We capture a wide but shallow strip. It stays within the macOS menu bar
-    instead of OCRing app content, while giving iBar enough room to place the
-    short "OL"/"OFF" status item away from the clock.
-    """
+def _macos_status_config(config: dict[str, Any]) -> dict[str, Any]:
     status_config = config.get("macos_status", {})
     if not isinstance(status_config, dict):
         status_config = {}
+    return status_config
+
+
+def _capture_region(screen_width: int, config: dict[str, Any]) -> tuple[int, int, int, int]:
+    """Return the screen region used for status detection.
+
+    Default mode captures only the expected OL/OFF status button. This avoids
+    OCRing arbitrary app content behind the transparent floating controls.
+    """
+    status_config = _macos_status_config(config)
+    if bool(status_config.get("capture_status_window_button", True)):
+        options = status_window_options(config)
+        status_width = int(options.width * 0.52)
+        pad_x = int(status_config.get("capture_padding_x", _STATUS_BUTTON_PADDING_X))
+        pad_y = int(status_config.get("capture_padding_y", _STATUS_BUTTON_PADDING_Y))
+        x = int(screen_width - options.margin_right - options.width - pad_x)
+        y = int(options.margin_top - pad_y)
+        region_width = status_width + pad_x * 2
+        region_height = int(options.height) + pad_y * 2
+        x = max(0, min(int(screen_width) - 1, x))
+        y = max(0, y)
+        region_width = max(1, min(region_width, int(screen_width) - x))
+        return x, y, region_width, region_height
+
     width = int(status_config.get("capture_width", _CAPTURE_WIDTH))
     height = int(status_config.get("capture_height", _MENU_BAR_HEIGHT))
     width = max(120, min(int(screen_width), width))
-    height = max(20, min(60, height))
+    height = max(20, min(320, height))
     x = max(0, int(screen_width) - width)
     return x, 0, width, height
+
+
+def _status_window_button_rect(config: dict[str, Any], image_width: int, image_height: int) -> tuple[int, int, int, int] | None:
+    """Return expected OL/OFF button rect inside the captured status screenshot."""
+    options = status_window_options(config)
+    status_config = _macos_status_config(config)
+    status_width = int(options.width * 0.52)
+    if bool(status_config.get("capture_status_window_button", True)):
+        pad_x = int(status_config.get("capture_padding_x", _STATUS_BUTTON_PADDING_X))
+        pad_y = int(status_config.get("capture_padding_y", _STATUS_BUTTON_PADDING_Y))
+        logical_width = max(1, status_width + pad_x * 2)
+        logical_height = max(1, int(options.height) + pad_y * 2)
+        scale_x = image_width / logical_width
+        scale_y = image_height / logical_height
+        x = int(pad_x * scale_x)
+        y = int(pad_y * scale_y)
+        w = int(status_width * scale_x)
+        h = int(options.height * scale_y)
+        return x, y, min(image_width - x, w), min(image_height - y, h)
+
+    logical_width = max(1, int(status_config.get("capture_width", _CAPTURE_WIDTH)))
+    logical_height = max(1, int(status_config.get("capture_height", _MENU_BAR_HEIGHT)))
+    scale_x = image_width / logical_width
+    scale_y = image_height / logical_height
+    x = int((logical_width - options.margin_right - options.width) * scale_x)
+    y = int(options.margin_top * scale_y)
+    w = int(status_width * scale_x)
+    h = int(options.height * scale_y)
+    if x < 0 or y < 0 or x >= image_width or y >= image_height:
+        return None
+    x2 = min(image_width, x + w)
+    y2 = min(image_height, y + h)
+    if x2 <= x or y2 <= y:
+        return None
+    return x, y, x2 - x, y2 - y
+
+
+def _classify_status_window_pixels(image_path: str, config: dict[str, Any]) -> tuple[str, str, float]:
+    """Classify OL/OFF from the configured status-window button color.
+
+    This is a fallback when OCR cannot read the transparent control reliably.
+    It only inspects the expected status button rectangle inside the dedicated
+    top-right status capture, not arbitrary app content.
+    """
+    try:
+        from PIL import Image
+
+        image = Image.open(image_path).convert("RGB")
+    except Exception as exc:
+        LOGGER.debug("MacosStatusDetector: visual status fallback failed to open image: %s", exc)
+        return "unknown", "", 0.0
+
+    rect = _status_window_button_rect(config, image.width, image.height)
+    if rect is None:
+        return "unknown", "", 0.0
+
+    x, y, w, h = rect
+    crop = image.crop((x, y, x + w, y + h))
+    get_flattened_data = getattr(crop, "get_flattened_data", None)
+    pixels = list(get_flattened_data() if get_flattened_data is not None else crop.getdata())
+    if not pixels:
+        return "unknown", "", 0.0
+
+    green_count = 0
+    red_count = 0
+    for r, g, b in pixels:
+        if g >= 145 and r <= 120 and b <= 150 and g >= max(r, b) * 1.45:
+            green_count += 1
+        if r >= 145 and g <= 120 and b <= 140 and r >= max(g, b) * 1.45:
+            red_count += 1
+
+    area = max(1, len(pixels))
+    green_ratio = green_count / area
+    red_ratio = red_count / area
+    min_pixels = max(30, int(area * 0.006))
+
+    if green_count >= min_pixels and green_count >= red_count * 2.0:
+        confidence = min(0.90, 0.65 + green_ratio * 6.0)
+        return "active", f"visual_status_window_green pixels={green_count}", confidence
+    if red_count >= min_pixels and red_count >= green_count * 2.0:
+        confidence = min(0.90, 0.65 + red_ratio * 6.0)
+        return "inactive", f"visual_status_window_red pixels={red_count}", confidence
+    return "unknown", "", 0.0
 
 
 def _capture_menu_bar_screenshot(config: dict[str, Any]) -> str | None:
@@ -242,16 +348,20 @@ def detect_macos_status(
             confidence=0.0,
         )
 
-    try:
-        texts = ocr_func(screenshot_path, config)
-    except Exception as exc:
-        LOGGER.warning("MacosStatusDetector: OCR callable failed: %s", exc)
-        texts = []
-    raw_status, matched_text = _classify_text(texts)
+    raw_status, matched_text, confidence = _classify_status_window_pixels(screenshot_path, config)
+    texts: list[str] = []
+    if raw_status == "unknown":
+        try:
+            texts = ocr_func(screenshot_path, config)
+        except Exception as exc:
+            LOGGER.warning("MacosStatusDetector: OCR callable failed: %s", exc)
+            texts = []
+        raw_status, matched_text = _classify_text(texts)
+        confidence = 0.9 if raw_status != "unknown" else 0.0
 
     LOGGER.info(
-        "MacosStatusDetector: ocr_texts=%r matched=%r raw_status=%s",
-        texts, matched_text, raw_status,
+        "MacosStatusDetector: ocr_text_count=%s matched=%r raw_status=%s",
+        len(texts), matched_text, raw_status,
     )
 
     return MacosStatusDetection(
@@ -260,7 +370,7 @@ def detect_macos_status(
         detected_text=matched_text,
         screenshot_path=screenshot_path,
         detected_at=now,
-        confidence=0.9 if raw_status != "unknown" else 0.0,
+        confidence=confidence,
     )
 
 

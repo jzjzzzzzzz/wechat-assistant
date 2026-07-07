@@ -11,8 +11,10 @@ import pytest
 from src.macos_status_detector import (
     MacosStatusDetection,
     MacosStatusWatcher,
+    _classify_status_window_pixels,
     _classify_text,
     _capture_region,
+    _status_window_button_rect,
     _status_to_db_value,
     detect_macos_status,
 )
@@ -68,6 +70,12 @@ def test_classify_ol_with_clock_text_returns_active():
     assert text == "🟢 OL 10:32"
 
 
+def test_classify_common_zero_l_ocr_error_returns_active():
+    status, text = _classify_text(["0L:59"])
+    assert status == "active"
+    assert text == "0L:59"
+
+
 def test_classify_off_with_clock_text_returns_inactive():
     status, text = _classify_text(["🔴 OFF 10:32"])
     assert status == "inactive"
@@ -110,16 +118,91 @@ def test_classify_conflicting_tokens_returns_unknown():
 
 
 def test_capture_region_defaults_to_wide_top_menu_bar_strip():
-    assert _capture_region(1512, {}) == (112, 0, 1400, 30)
+    assert _capture_region(1512, {}) == (1260, 136, 130, 58)
 
 
 def test_capture_region_uses_configured_width_and_height():
-    assert _capture_region(1512, {"macos_status": {"capture_width": 600, "capture_height": 34}}) == (
+    config = {"macos_status": {"capture_status_window_button": False, "capture_width": 600, "capture_height": 34}}
+    assert _capture_region(1512, config) == (
         912,
         0,
         600,
         34,
     )
+
+
+def test_status_window_button_rect_uses_configured_position():
+    config = {
+        "owner": {
+            "status_window": {
+                "width": 220,
+                "height": 46,
+                "margin_right": 24,
+                "margin_top": 142,
+            }
+        }
+    }
+
+    assert _status_window_button_rect(config, 130, 58) == (8, 6, 114, 46)
+
+
+def test_status_window_button_rect_scales_for_retina_screenshot():
+    config = {
+        "macos_status": {"capture_status_window_button": True},
+        "owner": {
+            "status_window": {
+                "width": 220,
+                "height": 46,
+                "margin_right": 24,
+                "margin_top": 142,
+            }
+        },
+    }
+
+    assert _status_window_button_rect(config, 260, 116) == (16, 12, 228, 92)
+
+
+def _write_status_color_fixture(path: Path, *, color: tuple[int, int, int] | None) -> None:
+    from PIL import Image, ImageDraw
+
+    image = Image.new("RGB", (130, 58), (245, 245, 245))
+    if color is not None:
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((20, 14, 108, 44), fill=color)
+    image.save(path)
+
+
+def test_visual_status_window_green_pixels_return_active(tmp_path: Path):
+    path = tmp_path / "green.png"
+    _write_status_color_fixture(path, color=(0, 184, 72))
+
+    raw_status, matched, confidence = _classify_status_window_pixels(str(path), {})
+
+    assert raw_status == "active"
+    assert "green" in matched
+    assert confidence > 0.0
+
+
+def test_visual_status_window_red_pixels_return_inactive(tmp_path: Path):
+    path = tmp_path / "red.png"
+    _write_status_color_fixture(path, color=(220, 20, 20))
+
+    raw_status, matched, confidence = _classify_status_window_pixels(str(path), {})
+
+    assert raw_status == "inactive"
+    assert "red" in matched
+    assert confidence > 0.0
+
+
+def test_visual_status_window_blank_returns_unknown(tmp_path: Path):
+    path = tmp_path / "blank.png"
+    _write_status_color_fixture(path, color=None)
+
+    raw_status, matched, confidence = _classify_status_window_pixels(str(path), {})
+
+    assert raw_status == "unknown"
+    assert matched == ""
+    assert confidence == 0.0
 
 
 # ── _status_to_db_value mapping ───────────────────────────────────────────────
