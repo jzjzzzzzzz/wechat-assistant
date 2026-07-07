@@ -81,6 +81,17 @@ def test_system_status_unknown_blocks_auto_reply():
     assert event.reason == "system_status_unknown"
 
 
+def test_missing_explicit_runtime_status_blocks_auto_reply():
+    config = make_config(owner_status=None, delay_minutes=0)
+    config.pop("owner_status", None)
+    policy = AutoReplyPolicy(config)
+
+    event = policy.evaluate(make_event(), now=BASE_TIME)
+
+    assert event.status == "ignored"
+    assert event.reason == "system_status_unknown"
+
+
 def test_system_offline_blocks_immediately_regardless_of_delay():
     """When system is OFF, the event is blocked immediately — delay window irrelevant."""
     policy = AutoReplyPolicy(make_config(owner_status="offline", delay_minutes=5))
@@ -214,6 +225,14 @@ def test_name_with_non_numeric_parentheses_not_group():
     assert classification.category != "group_candidate"
 
 
+def test_ocr_name_with_non_numeric_parentheses_not_group_when_whitelisted():
+    config = make_config(private_chat_whitelist=["Eric D (PRISMS)"], require_private_chat_whitelist=True)
+    classification = classify_chat_sender("Eric D (PRISMS)", auto_reply_config(config))
+
+    assert classification.is_private is True
+    assert classification.category == "private"
+
+
 def test_group_blocked_by_policy_even_if_in_whitelist():
     """Group chat name in whitelist must still be blocked — group detection takes priority."""
     config = make_config(owner_status="online", private_chat_whitelist=["同学群"])
@@ -281,6 +300,25 @@ def test_private_whitelist_matching_is_case_insensitive_for_english_names():
 
     assert classification.is_private is True
     assert classification.matched_whitelist == "Alice"
+
+
+def test_allowed_test_contacts_are_treated_as_private_test_targets():
+    config = make_config(private_chat_whitelist=["爱"], allowed_test_contacts=["文件传输助手"])
+
+    classification = classify_chat_sender("文件传输助手", auto_reply_config(config))
+
+    assert classification.is_private is True
+    assert classification.category == "private"
+    assert classification.matched_whitelist == "文件传输助手"
+
+
+def test_group_like_allowed_test_contact_is_still_blocked():
+    config = make_config(private_chat_whitelist=["爱"], allowed_test_contacts=["测试群(5)"])
+
+    classification = classify_chat_sender("测试群(5)", auto_reply_config(config))
+
+    assert classification.is_private is False
+    assert classification.category in {"group_or_blocklisted", "group_candidate"}
 
 
 def test_multi_participant_separator_marks_sender_as_group_candidate():

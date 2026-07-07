@@ -310,6 +310,22 @@ def test_gate_reads_status_from_db_when_no_override(tmp_path: Path):
     assert decision.system_status == "online"
 
 
+def test_gate_blocks_when_no_live_or_database_status(tmp_path: Path):
+    config = _base_config()
+    config["database_path"] = str(tmp_path / "empty.sqlite3")
+    config["owner"] = {"status_default": "online"}
+
+    decision = should_auto_reply(
+        "爱",
+        config,
+        ocr_confidence=0.9,
+    )
+
+    assert decision.allowed is False
+    assert decision.system_status == "unknown"
+    assert "unknown" in decision.reason
+
+
 def test_gate_reads_offline_from_db_and_blocks(tmp_path: Path):
     from src.owner_status import OwnerStatusStore
 

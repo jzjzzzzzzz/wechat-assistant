@@ -6,14 +6,14 @@ auto-reply is sent.  It checks all conditions in order and returns
 logged so the operator can see exactly why a message was or was not sent.
 
 Decision order (all must pass to allow sending):
-  1. System status is "online" (OL on macOS top-right)  — or db says online
+  1. System status is "online" (OL on macOS top-right) via live override or DB evidence
   2. Sender is not a group chat (bracket+number pattern, blocklist keywords)
   3. Sender is in the private_chat_whitelist (if require_private_chat_whitelist)
   4. OCR confidence >= min_ocr_confidence
   5. Target is in the allowed contacts list (for real sends)
   6. Global dry_run flag (if True, gate allows but caller must not actually send)
 
-Safe default: when status is unknown or any check fails → return (False, reason).
+Safe default: when status is unknown, only a config default, or any check fails → return (False, reason).
 """
 
 from __future__ import annotations
@@ -46,14 +46,18 @@ class GateDecision:
 
 
 def _get_current_system_status(config: dict[str, Any], store: OwnerStatusStore | None) -> str:
-    """Read current system status from DB ('online'/'offline') or config default."""
+    """Read current system status from DB.
+
+    Config defaults are not live status evidence, so missing DB status returns
+    unknown and blocks sending.
+    """
     try:
         if store is not None:
-            record = store.get_status(config)
-            return record.status
+            record = store.get_database_status()
+            return record.status if record is not None else "unknown"
         with OwnerStatusStore(config.get("database_path")) as s:
-            record = s.get_status(config)
-            return record.status
+            record = s.get_database_status()
+            return record.status if record is not None else "unknown"
     except Exception as exc:
         LOGGER.error("send_gate: failed to read system status from DB: %s", exc)
         return "unknown"

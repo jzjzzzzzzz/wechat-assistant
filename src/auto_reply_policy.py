@@ -109,6 +109,24 @@ def _looks_like_group_chat_name(sender: str) -> str | None:
     return None
 
 
+def _effective_private_whitelist(ar_config: dict[str, Any]) -> list[str]:
+    """Return configured private/test contacts that may be treated as 1:1 chats.
+
+    Group/system/public-account filters always run before this whitelist, so a
+    group-like name in either list is still blocked.
+    """
+    values: list[str] = []
+    for key in ("private_chat_whitelist", "allowed_test_contacts"):
+        raw_values = ar_config.get(key, [])
+        if isinstance(raw_values, list):
+            values.extend(
+                normalize_chat_sender(str(item))
+                for item in raw_values
+                if normalize_chat_sender(str(item))
+            )
+    return list(dict.fromkeys(values))
+
+
 def auto_reply_config(config: dict[str, Any]) -> dict[str, Any]:
     merged = DEFAULT_AUTO_REPLY_CONFIG.copy()
     raw = config.get("auto_reply", {})
@@ -220,11 +238,7 @@ def classify_chat_sender(sender: str, ar_config: dict[str, Any]) -> ChatSenderCl
         )
 
     if bool(ar_config.get("require_private_chat_whitelist", True)):
-        whitelist = [
-            normalize_chat_sender(str(item))
-            for item in ar_config.get("private_chat_whitelist", [])
-            if normalize_chat_sender(str(item))
-        ]
+        whitelist = _effective_private_whitelist(ar_config)
         matched_whitelist = next(
             (item for item in whitelist if item.casefold() == normalized.casefold()),
             None,
@@ -263,11 +277,6 @@ def _current_owner_status(config: dict[str, Any]) -> str:
     status = str(config.get("owner_status", "")).strip().lower()
     if status in {"online", "offline", "unknown"}:
         return status
-    owner = config.get("owner", {})
-    if isinstance(owner, dict):
-        default_status = str(owner.get("status_default", "online")).strip().lower()
-        if default_status in {"online", "offline"}:
-            return default_status
     return "unknown"
 
 

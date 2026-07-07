@@ -57,13 +57,17 @@ Private-chat classification is conservative. A sender is treated as private only
 - the sender is known and not `unknown`
 - the sender does not match group/system/public-account blocklist keywords
 - the sender does not match configured non-private keywords
-- `auto_reply.require_private_chat_whitelist` is true and the sender is listed in `auto_reply.private_chat_whitelist`
+- `auto_reply.require_private_chat_whitelist` is true and the sender is listed in `auto_reply.private_chat_whitelist` or `auto_reply.allowed_test_contacts`
+
+Group/system/public-account filters run before whitelist matching. A group-like name in a whitelist is still blocked.
 
 The default test private whitelist includes:
 
 ```yaml
 private_chat_whitelist:
   - "爱"
+allowed_test_contacts:
+  - "文件传输助手"
 ```
 
 The policy ignores:
